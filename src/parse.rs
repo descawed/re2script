@@ -1,12 +1,13 @@
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Error, Result};
 
 use crate::constants::{search_constant, NameStore};
 use crate::instruction::{
     ArgValue, ArithmeticOperator, ComparisonOperator, Instruction,
-    OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE,
+    OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE, OPCODE_GOTO,
 };
 
 #[derive(Debug, Clone)]
@@ -333,6 +334,7 @@ pub struct ScriptFormatter {
     arg_keyword_threshold: usize,
     suppress_nops: bool,
     name_store: NameStore,
+    label_offsets: Vec<usize>,
 }
 
 impl ScriptFormatter {
@@ -343,10 +345,15 @@ impl ScriptFormatter {
             arg_keyword_threshold,
             suppress_nops,
             name_store: NameStore::new(),
+            label_offsets: Vec::new(),
         }
     }
+    
+    fn get_label_index(&self, target: usize) -> Option<usize> {
+        self.label_offsets.iter().position(|offset| *offset == target)
+    }
 
-    fn make_statement(&self, instruction: &Instruction) -> Statement {
+    fn make_statement_inner(&self, instruction: &Instruction) -> Statement {
         // we don't check for blocks here because handle_block is responsible for that
         // we also don't check for gotos because those need to be handled later after the AST is
         // built so we can insert labels
@@ -388,6 +395,10 @@ impl ScriptFormatter {
                 return Statement::ForLoop(count.into());
             }
         }
+        
+        if let Some(i) = Self::goto_offset(instruction).and_then(|o| self.get_label_index(o)) {
+            return Statement::GoTo(format!("label{i}"));
+        }
 
         let mut args = Vec::new();
         for (info, &value) in instruction.describe_args() {
@@ -409,6 +420,15 @@ impl ScriptFormatter {
                 }
             }).collect(),
         )
+    }
+    
+    fn make_statement(&self, instruction: &Instruction) -> Statement {
+        let stmt = self.make_statement_inner(instruction);
+        if let Some(i) = self.get_label_index(instruction.offset()) {
+            Statement::Label(format!("label{i}"), Box::new(stmt))
+        } else {
+            stmt
+        }
     }
 
     fn is_sibling(head: &Instruction, child: Option<&&Instruction>, bytes_read: usize, block_size: usize) -> bool {
@@ -490,7 +510,7 @@ impl ScriptFormatter {
         Statement::Block(Box::new(head_statement), block)
     }
 
-    pub fn format_instructions(&self, name: FunctionName, instructions: &[Instruction]) -> Function {
+    fn format_instructions(&self, name: FunctionName, instructions: &[Instruction]) -> Function {
         // this will almost certainly overestimate because instructions inside blocks will be pushed
         // down into the blocks, but it guarantees we won't need any extra allocations
         let mut body = Vec::with_capacity(instructions.len());
@@ -515,7 +535,7 @@ impl ScriptFormatter {
         }
     }
 
-    pub fn format_script(&mut self, functions: &[Vec<Instruction>]) -> Vec<Function> {
+    fn format_script(&mut self, functions: &[Vec<Instruction>]) -> Vec<Function> {
         // add our generated function names to the name store
         for i in 0..functions.len() {
             self.name_store.add(format!("sub{i}"), ArgValue::FunctionIndex(i as u8));
@@ -528,14 +548,61 @@ impl ScriptFormatter {
 
         out
     }
+    
+    fn goto_offset(instruction: &Instruction) -> Option<usize> {
+        match (instruction.opcode() == OPCODE_GOTO, instruction.arg("offset")?) {
+            (true, ArgValue::I16(offset)) => instruction.offset().checked_add_signed(offset as isize),
+            _ => None,
+        }
+    }
+    
+    fn collect_offsets(instructions: &[Instruction], offsets: &mut HashSet<usize>) {
+        for instruction in instructions {
+            offsets.insert(instruction.offset());
+        }
+    }
+    
+    fn find_labels(&mut self, instructions: &[Instruction], valid_offsets: &HashSet<usize>) {
+        for instruction in instructions {
+            let Some(target) = Self::goto_offset(instruction) else {
+                continue;
+            };
+            
+            if valid_offsets.contains(&target) && !self.label_offsets.contains(&target) {
+                self.label_offsets.push(target);
+            }
+        }
+    }
+    
+    pub fn reset(&mut self) {
+        self.name_store.clear();
+    }
 
-    pub fn parse_init_script(&self, buf: &[u8]) -> Function {
+    pub fn parse_init_script(&mut self, buf: &[u8]) -> Function {
+        self.reset();
+        
         let instructions = Instruction::read_function(buf);
+        
+        let mut valid_offsets = HashSet::new();
+        Self::collect_offsets(&instructions, &mut valid_offsets);
+        self.find_labels(&instructions, &valid_offsets);
+        
         self.format_instructions(FunctionName::Init, &instructions)
     }
 
-    pub fn parse_exec_script(&mut self, buf: &[u8]) -> anyhow::Result<Vec<Function>> {
+    pub fn parse_exec_script(&mut self, buf: &[u8]) -> Result<Vec<Function>> {
+        self.reset();
+        
         let script = Instruction::read_script(buf)?;
+
+        let mut valid_offsets = HashSet::new();
+        for function in &script {
+            Self::collect_offsets(function, &mut valid_offsets);
+        }
+        for function in &script {
+            self.find_labels(function, &valid_offsets);
+        }
+        
         Ok(self.format_script(&script))
     }
 }

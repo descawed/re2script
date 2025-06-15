@@ -1161,10 +1161,13 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
 pub struct Instruction {
     description: &'static InstructionDescription,
     arg_values: Vec<ArgValue>,
+    offset: usize,
 }
 
 impl Instruction {
     pub fn read<T: Read + Seek>(mut f: T) -> Result<Self> {
+        let offset = f.stream_position()? as usize;
+        
         let mut opcode = [0u8];
         f.read_exact(&mut opcode)?;
 
@@ -1180,6 +1183,7 @@ impl Instruction {
         Ok(Self {
             description,
             arg_values,
+            offset,
         })
     }
 
@@ -1222,7 +1226,12 @@ impl Instruction {
             let offset = window[0];
             let next_offset = window[1];
             let func_buf = &buf[offset..next_offset];
-            functions.push(Self::read_function(func_buf));
+            let mut function = Self::read_function(func_buf);
+            // make offsets absolute
+            for instruction in &mut function {
+                instruction.offset += offset;
+            }
+            functions.push(function);
         }
 
         Ok(functions)
@@ -1271,6 +1280,10 @@ impl Instruction {
 
     pub const fn opcode(&self) -> u8 {
         self.description.opcode
+    }
+    
+    pub const fn offset(&self) -> usize {
+        self.offset
     }
 
     pub fn args<const N: usize>(&self, names: [&str; N]) -> [Option<ArgValue>; N] {

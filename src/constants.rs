@@ -99,6 +99,10 @@ impl NameStore {
         self.names.insert(name, value);
     }
     
+    pub fn clear(&mut self) {
+        self.names.clear();
+    }
+    
     pub fn get_value(&self, name: &str) -> Option<ArgValue> {
         self.names.get(name).or_else(|| SCRIPT_CONSTANTS.get(name)).copied()
     }
