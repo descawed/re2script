@@ -36,6 +36,14 @@ pub const OPCODE_SAVE: u8 = 0x24;
 pub const OPCODE_COPY: u8 = 0x25;
 pub const OPCODE_CALC: u8 = 0x26;
 pub const OPCODE_CALC2: u8 = 0x27;
+pub const OPCODE_DIR_CK: u8 = 0x39;
+pub const OPCODE_MEMBER_CMP: u8 = 0x3E;
+pub const OPCODE_SCE_KEY_CK: u8 = 0x4F;
+pub const OPCODE_SCE_TRG_CK: u8 = 0x50;
+pub const OPCODE_KEEP_ITEM_CK: u8 = 0x5E;
+pub const OPCODE_KEEP_ITEM_CK2: u8 = 0x81;
+pub const OPCODE_SCE_EM_POS_CK: u8 = 0x85;
+pub const OPCODE_POISON_CK: u8 = 0x86;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
@@ -1243,9 +1251,22 @@ impl Instruction {
     pub const fn is_for_loop(&self) -> bool {
         matches!(self.description.opcode, OPCODE_FOR | OPCODE_FOR2)
     }
-    
+
     pub const fn is_nop(&self) -> bool {
         matches!(self.description.opcode, OPCODE_NOP | OPCODE_NOP1E | OPCODE_NOP1F | OPCODE_NOP20)
+    }
+
+    pub const fn has_conditions(&self) -> bool {
+        matches!(self.description.opcode, OPCODE_IFEL_CK | OPCODE_WHILE | OPCODE_EDWHILE)
+    }
+
+    pub const fn is_condition(&self) -> bool {
+        matches!(
+            self.description.opcode,
+            OPCODE_CK | OPCODE_CMP | OPCODE_DIR_CK | OPCODE_SCE_KEY_CK | OPCODE_SCE_TRG_CK
+            | OPCODE_KEEP_ITEM_CK | OPCODE_KEEP_ITEM_CK2 | OPCODE_SCE_EM_POS_CK | OPCODE_POISON_CK
+            | OPCODE_MEMBER_CMP
+        )
     }
 
     pub const fn opcode(&self) -> u8 {

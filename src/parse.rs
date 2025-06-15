@@ -219,6 +219,7 @@ pub enum Statement {
     ForLoop(Expression),
     Block(Box<Statement>, Vec<Statement>),
     Label(String, Box<Statement>),
+    BlankLine, // ugly hack to give me some control over the formatting when building the AST from a decompiled script
 }
 
 impl Display for Statement {
@@ -263,6 +264,7 @@ impl Display for Statement {
                 write!(f, ")")
             }
             Self::Block(head, body) => write_block(f, head, body),
+            Self::BlankLine => Ok(()),
         }
     }
 }
@@ -408,15 +410,32 @@ impl ScriptFormatter {
         // check if this is a block instruction that should logically be a sibling of our
         // block instead of a child. if it is, break out of our block early and let that
         // instruction be the start of a new block
-        if Self::is_sibling(head, iterator.peek(), bytes_read, block_size) {
+        let peek = iterator.peek();
+        if Self::is_sibling(head, peek, bytes_read, block_size) {
             return head_statement;
         }
+        
+        // if we're inside a conditional block, insert a blank line once we reach the end of the
+        // conditions to make it clearer where they begin and end
+        let mut format_after_conditions = if let Some(&instruction) = peek {
+            head.has_conditions() && instruction.is_condition()
+        } else {
+            false
+        };
 
         while let Some(instruction) = iterator.next() {
+            if format_after_conditions && !instruction.is_condition() {
+                format_after_conditions = false;
+                block.push(Statement::BlankLine);
+            }
+            
             bytes_read += instruction.size();
             let stmt = if instruction.is_block_start() {
                 self.handle_block(instruction, iterator, &mut bytes_read)
             } else {
+                if instruction.has_conditions() {
+                    block.push(Statement::BlankLine);
+                }
                 self.make_statement(instruction)
             };
             
