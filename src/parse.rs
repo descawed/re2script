@@ -382,7 +382,7 @@ impl ScriptFormatter {
         let child_opcode = child.opcode();
         matches!(
             (head_opcode, child_opcode),
-            (OPCODE_IFEL_CK | OPCODE_ELSE_CK, OPCODE_ELSE_CK)
+            (OPCODE_IFEL_CK, OPCODE_ELSE_CK)
             | (OPCODE_CASE, OPCODE_CASE)
         ) && bytes_read + child.size() >= block_size
     }
@@ -394,7 +394,13 @@ impl ScriptFormatter {
         let Some(block_size) = head.arg("block_size") else {
             return head_statement;
         };
-        let block_size = block_size.as_int() as usize;
+        let block_size = block_size.as_int() as usize - if head.opcode() == OPCODE_ELSE_CK {
+            // unlike other blocks, else_ck counts the block size from the beginning of the
+            // instruction instead of the end
+            head.size()
+        } else {
+            0
+        };
         let mut bytes_read = 0usize;
 
         // check if this is a block instruction that should logically be a sibling of our
