@@ -1,0 +1,10 @@
+[package]
+name = "re2script"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+chumsky = "1.0.0-alpha.8"
+num_enum = "0.7.3"
+residat = { git = "https://github.com/descawed/residat.git", branch = "master" }
