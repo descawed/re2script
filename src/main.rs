@@ -85,6 +85,9 @@ enum Command {
         /// showing argument names (keywords) for all arguments
         #[arg(short, long, default_value_t = 2)]
         keyword_threshold: usize,
+        /// Remove nop instructions from the decompiled scripts
+        #[arg(short, long)]
+        nop_suppress: bool,
     },
 }
 
@@ -189,9 +192,9 @@ fn main() -> Result<()> {
         Command::Extract { rdt, output_paths } => {
             extract_scd(&rdt, output_paths.init_script.as_deref(), output_paths.exec_script.as_deref())
         }
-        Command::Decompile { input, output_paths, format, all_args, keyword_threshold } => {
+        Command::Decompile { input, output_paths, format, all_args, keyword_threshold, nop_suppress } => {
             let (init, exec) = get_script_buffers(&input, format)?;
-            let formatter = ScriptFormatter::new(false, all_args, keyword_threshold);
+            let formatter = ScriptFormatter::new(false, all_args, keyword_threshold, nop_suppress);
             decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), formatter, output_paths.output.as_deref())
         }
     }

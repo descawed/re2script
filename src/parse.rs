@@ -299,14 +299,16 @@ pub struct ScriptFormatter {
     comment_ids: bool,
     all_args: bool,
     arg_keyword_threshold: usize,
+    suppress_nops: bool,
 }
 
 impl ScriptFormatter {
-    pub const fn new(comment_ids: bool, all_args: bool, arg_keyword_threshold: usize) -> Self {
+    pub const fn new(comment_ids: bool, all_args: bool, arg_keyword_threshold: usize, suppress_nops: bool) -> Self {
         Self {
             comment_ids,
             all_args,
             arg_keyword_threshold,
+            suppress_nops,
         }
     }
 
@@ -417,7 +419,10 @@ impl ScriptFormatter {
             } else {
                 self.make_statement(instruction)
             };
-            block.push(stmt);
+            
+            if !self.suppress_nops || !instruction.is_nop() {
+                block.push(stmt);
+            }
 
             if bytes_read >= block_size || Self::is_sibling(head, iterator.peek(), bytes_read, block_size) {
                 break;
@@ -440,6 +445,10 @@ impl ScriptFormatter {
         let mut iterator = instructions.iter().peekable();
 
         while let Some(instruction) = iterator.next() {
+            if self.suppress_nops && instruction.is_nop() {
+                continue;
+            }
+            
             let stmt = if instruction.is_block_start() {
                 self.handle_block(instruction, &mut iterator, &mut 0)
             } else {

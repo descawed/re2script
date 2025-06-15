@@ -10,6 +10,7 @@ pub const NUM_EVENTS: u8 = 14;
 pub const NUM_VARIABLES: usize = 36;
 
 // opcodes for instructions that have special handling in the parser
+pub const OPCODE_NOP: u8 = 0x00;
 pub const OPCODE_IFEL_CK: u8 = 0x06;
 pub const OPCODE_ELSE_CK: u8 = 0x07;
 pub const OPCODE_ENDIF: u8 = 0x08;
@@ -25,6 +26,9 @@ pub const OPCODE_DEFAULT: u8 = 0x15;
 pub const OPCODE_ESWITCH: u8 = 0x16;
 pub const OPCODE_GOTO: u8 = 0x17;
 pub const OPCODE_FOR2: u8 = 0x1B;
+pub const OPCODE_NOP1E: u8 = 0x1E;
+pub const OPCODE_NOP1F: u8 = 0x1F;
+pub const OPCODE_NOP20: u8 = 0x20;
 pub const OPCODE_CK: u8 = 0x21;
 pub const OPCODE_SET: u8 = 0x22;
 pub const OPCODE_CMP: u8 = 0x23;
@@ -1238,6 +1242,10 @@ impl Instruction {
 
     pub const fn is_for_loop(&self) -> bool {
         matches!(self.description.opcode, OPCODE_FOR | OPCODE_FOR2)
+    }
+    
+    pub const fn is_nop(&self) -> bool {
+        matches!(self.description.opcode, OPCODE_NOP | OPCODE_NOP1E | OPCODE_NOP1F | OPCODE_NOP20)
     }
 
     pub const fn opcode(&self) -> u8 {
