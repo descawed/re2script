@@ -374,7 +374,7 @@ impl ScriptFormatter {
         )
     }
 
-    fn is_sibling(head: &Instruction, child: Option<&&Instruction>) -> bool {
+    fn is_sibling(head: &Instruction, child: Option<&&Instruction>, bytes_read: usize, block_size: usize) -> bool {
         let Some(child) = child else {
             return false;
         };
@@ -382,9 +382,9 @@ impl ScriptFormatter {
         let child_opcode = child.opcode();
         matches!(
             (head_opcode, child_opcode),
-            (OPCODE_IFEL_CK, OPCODE_ELSE_CK)
+            (OPCODE_IFEL_CK | OPCODE_ELSE_CK, OPCODE_ELSE_CK)
             | (OPCODE_CASE, OPCODE_CASE)
-        )
+        ) && bytes_read + child.size() >= block_size
     }
 
     fn handle_block<'a>(&self, head: &'a Instruction, iterator: &mut Peekable<impl Iterator<Item=&'a Instruction>>, parent_bytes_read: &mut usize) -> Statement {
@@ -400,20 +400,20 @@ impl ScriptFormatter {
         // check if this is a block instruction that should logically be a sibling of our
         // block instead of a child. if it is, break out of our block early and let that
         // instruction be the start of a new block
-        if Self::is_sibling(head, iterator.peek()) {
+        if Self::is_sibling(head, iterator.peek(), bytes_read, block_size) {
             return head_statement;
         }
 
         while let Some(instruction) = iterator.next() {
+            bytes_read += instruction.size();
             let stmt = if instruction.is_block_start() {
                 self.handle_block(instruction, iterator, &mut bytes_read)
             } else {
-                bytes_read += instruction.size();
                 self.make_statement(instruction)
             };
             block.push(stmt);
 
-            if bytes_read >= block_size || Self::is_sibling(head, iterator.peek()) {
+            if bytes_read >= block_size || Self::is_sibling(head, iterator.peek(), bytes_read, block_size) {
                 break;
             }
         }

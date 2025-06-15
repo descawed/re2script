@@ -445,17 +445,17 @@ impl Arg {
     pub const fn is_signed(&self) -> bool {
         self.type_.is_signed()
     }
-    
+
     /// Is this argument only allowed to be passed as a keyword argument and not a positional argument?
     pub const fn is_keyword_only(&self) -> bool {
         self.is_keyword_only
     }
-    
-    /// Should this argument be shown if it has the given value when decompiling the parent instruction? 
+
+    /// Should this argument be shown if it has the given value when decompiling the parent instruction?
     pub fn should_show_value(&self, value: ArgValue) -> bool {
         !self.is_calculated && Some(value) != self.default
     }
-    
+
     /// Get the name of this argument
     pub const fn name(&self) -> &'static str {
         self.name
@@ -1170,11 +1170,11 @@ impl Instruction {
             arg_values,
         })
     }
-    
+
     pub fn read_function(buf: &[u8]) -> Vec<Self> {
         let size = buf.len() as u64;
         let mut cursor = Cursor::new(buf);
-        
+
         let mut instructions = Vec::new();
         while cursor.position() < size {
             let Ok(instruction) = Self::read(&mut cursor) else {
@@ -1183,16 +1183,16 @@ impl Instruction {
             };
             instructions.push(instruction);
         }
-        
+
         instructions
     }
-    
+
     pub fn read_script(buf: &[u8]) -> Result<Vec<Vec<Self>>> {
         let size = buf.len();
         let mut word = [0u8, 0u8];
         let mut cursor = Cursor::new(buf);
         cursor.read_exact(&mut word)?;
-        
+
         let header_size = u16::from_le_bytes(word) as usize;
         let num_functions = header_size >> 1;
         let mut offsets = Vec::with_capacity(num_functions + 1);
@@ -1204,7 +1204,7 @@ impl Instruction {
             offsets.push(offset as usize);
         }
         offsets.push(size);
-        
+
         let mut functions = Vec::with_capacity(num_functions);
         for window in offsets.windows(2) {
             let offset = window[0];
@@ -1212,7 +1212,7 @@ impl Instruction {
             let func_buf = &buf[offset..next_offset];
             functions.push(Self::read_function(func_buf));
         }
-        
+
         Ok(functions)
     }
 
@@ -1227,26 +1227,26 @@ impl Instruction {
             | OPCODE_WHILE | OPCODE_DO | OPCODE_FOR | OPCODE_FOR2
         )
     }
-    
+
     pub const fn is_flag_op(&self) -> bool {
         matches!(self.description.opcode, OPCODE_CK | OPCODE_SET)
     }
-    
+
     pub const fn is_var_op(&self) -> bool {
         matches!(self.description.opcode, OPCODE_CALC | OPCODE_CALC2 | OPCODE_CMP | OPCODE_SAVE | OPCODE_COPY)
     }
-    
+
     pub const fn is_for_loop(&self) -> bool {
         matches!(self.description.opcode, OPCODE_FOR | OPCODE_FOR2)
     }
-    
+
     pub const fn opcode(&self) -> u8 {
         self.description.opcode
     }
-    
+
     pub fn args<const N: usize>(&self, names: [&str; N]) -> [Option<ArgValue>; N] {
         let mut values = [const { None }; N];
-        
+
         for (i, arg) in self.description.args.iter().enumerate() {
             for (j, name) in names.iter().enumerate() {
                 if arg.name == *name {
@@ -1257,22 +1257,22 @@ impl Instruction {
                 }
             }
         }
-        
+
         values
     }
-    
+
     pub fn arg(&self, name: &str) -> Option<ArgValue> {
         self.args([name])[0]
     }
-    
+
     pub fn arg_values(&self) -> &[ArgValue] {
         &self.arg_values
     }
-    
+
     pub fn describe_args(&self) -> impl Iterator<Item=(&Arg, &ArgValue)> {
         self.description.args.iter().zip(&self.arg_values)
     }
-    
+
     pub const fn name(&self) -> &'static str {
         self.description.name
     }
