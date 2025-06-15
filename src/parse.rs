@@ -9,8 +9,6 @@ use crate::instruction::{
     OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE,
 };
 
-const NAMED_ARG_THRESHOLD: usize = 2;
-
 #[derive(Debug, Clone)]
 pub enum Expression {
     Int(i32),
@@ -270,19 +268,49 @@ impl Display for Statement {
 }
 
 #[derive(Debug, Clone)]
+pub enum FunctionName {
+    Init,
+    Exec(String),
+}
+
+impl Display for FunctionName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Init => write!(f, "init"),
+            Self::Exec(name) => write!(f, "function {}", name),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Function {
-    name: String,
+    name: FunctionName,
     body: Vec<Statement>,
 }
 
 impl Display for Function {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write_block(f, format!("function {}", self.name), &self.body)
+        write_block(f, &self.name, &self.body)
     }
 }
 
-impl Function {
-    fn make_statement(instruction: &Instruction) -> Statement {
+#[derive(Debug, Clone)]
+pub struct ScriptFormatter {
+    comment_ids: bool,
+    all_args: bool,
+    arg_keyword_threshold: usize,
+}
+
+impl ScriptFormatter {
+    pub const fn new(comment_ids: bool, all_args: bool, arg_keyword_threshold: usize) -> Self {
+        Self {
+            comment_ids,
+            all_args,
+            arg_keyword_threshold,
+        }
+    }
+
+    fn make_statement(&self, instruction: &Instruction) -> Statement {
         // we don't check for blocks here because handle_block is responsible for that
         // we also don't check for gotos because those need to be handled later after the AST is
         // built so we can insert labels
@@ -327,12 +355,12 @@ impl Function {
 
         let mut args = Vec::new();
         for (info, &value) in instruction.describe_args() {
-            if info.should_show_value(value) {
+            if info.should_show_value(value) || self.all_args {
                 args.push((info, value));
             }
         }
 
-        let show_keywords = args.len() > NAMED_ARG_THRESHOLD;
+        let show_keywords = args.len() > self.arg_keyword_threshold;
 
         Statement::Instruction(
             String::from(instruction.name()),
@@ -345,7 +373,7 @@ impl Function {
             }).collect(),
         )
     }
-    
+
     fn is_sibling(head: &Instruction, child: Option<&&Instruction>) -> bool {
         let Some(child) = child else {
             return false;
@@ -359,8 +387,8 @@ impl Function {
         )
     }
 
-    fn handle_block<'a>(head: &'a Instruction, iterator: &mut Peekable<impl Iterator<Item=&'a Instruction>>, parent_bytes_read: &mut usize) -> Statement {
-        let head_statement = Self::make_statement(head);
+    fn handle_block<'a>(&self, head: &'a Instruction, iterator: &mut Peekable<impl Iterator<Item=&'a Instruction>>, parent_bytes_read: &mut usize) -> Statement {
+        let head_statement = self.make_statement(head);
 
         let mut block = Vec::new();
         let Some(block_size) = head.arg("block_size") else {
@@ -378,10 +406,10 @@ impl Function {
 
         while let Some(instruction) = iterator.next() {
             let stmt = if instruction.is_block_start() {
-                Self::handle_block(instruction, iterator, &mut bytes_read)
+                self.handle_block(instruction, iterator, &mut bytes_read)
             } else {
                 bytes_read += instruction.size();
-                Self::make_statement(instruction)
+                self.make_statement(instruction)
             };
             block.push(stmt);
 
@@ -391,7 +419,7 @@ impl Function {
         }
 
         *parent_bytes_read += bytes_read;
-        
+
         if block.is_empty() {
             return head_statement;
         }
@@ -399,9 +427,7 @@ impl Function {
         Statement::Block(Box::new(head_statement), block)
     }
 
-    pub fn from_instructions<T: Into<String>>(name: T, instructions: &[Instruction]) -> Self {
-        let name = name.into();
-
+    pub fn format_instructions(&self, name: FunctionName, instructions: &[Instruction]) -> Function {
         // this will almost certainly overestimate because instructions inside blocks will be pushed
         // down into the blocks, but it guarantees we won't need any extra allocations
         let mut body = Vec::with_capacity(instructions.len());
@@ -409,25 +435,35 @@ impl Function {
 
         while let Some(instruction) = iterator.next() {
             let stmt = if instruction.is_block_start() {
-                Self::handle_block(instruction, &mut iterator, &mut 0)
+                self.handle_block(instruction, &mut iterator, &mut 0)
             } else {
-                Self::make_statement(instruction)
+                self.make_statement(instruction)
             };
             body.push(stmt);
         }
 
-        Self {
+        Function {
             name,
             body,
         }
     }
 
-    pub fn from_script(functions: &[Vec<Instruction>]) -> Vec<Self> {
+    pub fn format_script(&self, functions: &[Vec<Instruction>]) -> Vec<Function> {
         let mut out = Vec::with_capacity(functions.len());
         for (i, function) in functions.iter().enumerate() {
-            out.push(Self::from_instructions(format!("sub{i}"), &function));
+            out.push(self.format_instructions(FunctionName::Exec(format!("sub{i}")), &function));
         }
 
         out
+    }
+
+    pub fn parse_init_script(&self, buf: &[u8]) -> Function {
+        let instructions = Instruction::read_function(buf);
+        self.format_instructions(FunctionName::Init, &instructions)
+    }
+
+    pub fn parse_exec_script(&self, buf: &[u8]) -> anyhow::Result<Vec<Function>> {
+        let script = Instruction::read_script(buf)?;
+        Ok(self.format_script(&script))
     }
 }
