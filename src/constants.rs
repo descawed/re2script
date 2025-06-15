@@ -82,3 +82,34 @@ pub fn search_constant(search_value: ArgValue) -> Option<&'static str> {
     
     None
 }
+
+#[derive(Debug, Clone)]
+pub struct NameStore {
+    names: HashMap<String, ArgValue>,
+}
+
+impl NameStore {
+    pub fn new() -> Self {
+        Self {
+            names: HashMap::new(),
+        }
+    }
+    
+    pub fn add(&mut self, name: String, value: ArgValue) {
+        self.names.insert(name, value);
+    }
+    
+    pub fn get_value(&self, name: &str) -> Option<ArgValue> {
+        self.names.get(name).or_else(|| SCRIPT_CONSTANTS.get(name)).copied()
+    }
+    
+    pub fn get_name(&self, search: ArgValue) -> Option<String> {
+        for (name, value) in &self.names {
+            if *value == search {
+                return Some(name.clone());
+            }
+        }
+        
+        search_constant(search).map(String::from)
+    }
+}

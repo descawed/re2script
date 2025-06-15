@@ -3,7 +3,7 @@ use std::iter::Peekable;
 
 use anyhow::{anyhow, Error};
 
-use crate::constants::search_constant;
+use crate::constants::{search_constant, NameStore};
 use crate::instruction::{
     ArgValue, ArithmeticOperator, ComparisonOperator, Instruction,
     OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE,
@@ -15,6 +15,35 @@ pub enum Expression {
     Identifier(String),
     BitFlags(Vec<Expression>),
     Var(u8),
+    Annotated(Box<Expression>, String), // hack to allow me to inject comments when building the AST from a decompiled script
+}
+
+impl Expression {
+    pub fn from_value_rich(value: ArgValue, names: &NameStore, comment_ids: bool) -> Self {
+        if let ArgValue::VariableIndex(id) = value {
+            return Self::Var(id);
+        }
+
+        if let Some(constant) = names.get_name(value) {
+            return Self::Identifier(constant);
+        }
+
+        let int = Self::Int(value.as_int());
+        
+        if comment_ids {
+            match value {
+                ArgValue::CharacterId(id) => {
+                    return Self::Annotated(Box::new(int), String::from(id.name()));
+                }
+                ArgValue::Item(item) => {
+                    return Self::Annotated(Box::new(int), String::from(item.name()));
+                }
+                _ => (),
+            }
+        }
+        
+        int
+    }
 }
 
 impl Display for Expression {
@@ -33,6 +62,7 @@ impl Display for Expression {
                 Ok(())
             }
             Self::Var(id) => write!(f, "var[{}]", id),
+            Self::Annotated(expr, comment) => write!(f, "{} /* {} */", expr, comment),
         }
     }
 }
@@ -302,15 +332,17 @@ pub struct ScriptFormatter {
     all_args: bool,
     arg_keyword_threshold: usize,
     suppress_nops: bool,
+    name_store: NameStore,
 }
 
 impl ScriptFormatter {
-    pub const fn new(comment_ids: bool, all_args: bool, arg_keyword_threshold: usize, suppress_nops: bool) -> Self {
+    pub fn new(comment_ids: bool, all_args: bool, arg_keyword_threshold: usize, suppress_nops: bool) -> Self {
         Self {
             comment_ids,
             all_args,
             arg_keyword_threshold,
             suppress_nops,
+            name_store: NameStore::new(),
         }
     }
 
@@ -329,7 +361,7 @@ impl ScriptFormatter {
                 return Statement::VarOperation {
                     id,
                     op,
-                    source: rhs.into(),
+                    source: Expression::from_value_rich(rhs, &self.name_store, self.comment_ids),
                 };
             }
         }
@@ -369,10 +401,11 @@ impl ScriptFormatter {
         Statement::Instruction(
             String::from(instruction.name()),
             args.into_iter().map(|(info, value)| {
+                let value_expr = Expression::from_value_rich(value, &self.name_store, self.comment_ids);
                 if show_keywords || info.is_keyword_only() {
-                    Argument::named(String::from(info.name()), value.into())
+                    Argument::named(String::from(info.name()), value_expr)
                 } else {
-                    Argument::expr(value.into())
+                    Argument::expr(value_expr)
                 }
             }).collect(),
         )
@@ -482,7 +515,12 @@ impl ScriptFormatter {
         }
     }
 
-    pub fn format_script(&self, functions: &[Vec<Instruction>]) -> Vec<Function> {
+    pub fn format_script(&mut self, functions: &[Vec<Instruction>]) -> Vec<Function> {
+        // add our generated function names to the name store
+        for i in 0..functions.len() {
+            self.name_store.add(format!("sub{i}"), ArgValue::FunctionIndex(i as u8));
+        }
+        
         let mut out = Vec::with_capacity(functions.len());
         for (i, function) in functions.iter().enumerate() {
             out.push(self.format_instructions(FunctionName::Exec(format!("sub{i}")), &function));
@@ -496,7 +534,7 @@ impl ScriptFormatter {
         self.format_instructions(FunctionName::Init, &instructions)
     }
 
-    pub fn parse_exec_script(&self, buf: &[u8]) -> anyhow::Result<Vec<Function>> {
+    pub fn parse_exec_script(&mut self, buf: &[u8]) -> anyhow::Result<Vec<Function>> {
         let script = Instruction::read_script(buf)?;
         Ok(self.format_script(&script))
     }

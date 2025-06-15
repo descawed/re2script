@@ -72,11 +72,9 @@ enum Command {
         /// The format of the input file
         #[arg(short, long, value_enum, default_value_t = Format::Rdt)]
         format: Format,
-        // FIXME: can't support this right now because the Display trait doesn't have access to the
-        //  format parameters
-        /*/// Include a descriptive comment next to known ID values with no corresponding constant
+        /// Include a descriptive comment next to known ID values with no corresponding constant
         #[arg(short, long)]
-        comment_ids: bool,*/
+        comment_ids: bool,
         /// Show all arguments for all instructions, including those which use the default value
         /// and those which are calculated automatically
         #[arg(short, long)]
@@ -129,7 +127,7 @@ fn get_script_buffers(path: &Path, format: Format) -> Result<(Option<Vec<u8>>, O
 fn decompile(
     init_buf: Option<Vec<u8>>, init_path: Option<&Path>,
     exec_buf: Option<Vec<u8>>, exec_path: Option<&Path>,
-    formatter: ScriptFormatter, combined_path: Option<&Path>,
+    mut formatter: ScriptFormatter, combined_path: Option<&Path>,
 ) -> Result<()> {
     if init_buf.is_none() && init_path.is_some() {
         bail!("Cannot export an initialization script from an execution script");
@@ -192,9 +190,9 @@ fn main() -> Result<()> {
         Command::Extract { rdt, output_paths } => {
             extract_scd(&rdt, output_paths.init_script.as_deref(), output_paths.exec_script.as_deref())
         }
-        Command::Decompile { input, output_paths, format, all_args, keyword_threshold, nop_suppress } => {
+        Command::Decompile { input, output_paths, format, comment_ids, all_args, keyword_threshold, nop_suppress } => {
             let (init, exec) = get_script_buffers(&input, format)?;
-            let formatter = ScriptFormatter::new(false, all_args, keyword_threshold, nop_suppress);
+            let formatter = ScriptFormatter::new(comment_ids, all_args, keyword_threshold, nop_suppress);
             decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), formatter, output_paths.output.as_deref())
         }
     }
