@@ -1,7 +1,9 @@
 [package]
 name = "re2script"
 version = "0.1.0"
+authors = ["descawed <re2script@descawed.com>"]
 edition = "2024"
+repository = "https://github.com/descawed/re2script"
 
 [dependencies]
 anyhow = "1.0.98"
