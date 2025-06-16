@@ -9,7 +9,8 @@ use crate::{
     OPCODE_CMP, OPCODE_CALC, OPCODE_CALC2, OPCODE_SAVE, OPCODE_COPY,
     OPCODE_FOR, OPCODE_FOR2, OPCODE_NEXT,
     OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_ENDIF,
-    OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE, OPCODE_SWITCH, OPCODE_ESWITCH,
+    OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE,
+    OPCODE_SWITCH, OPCODE_CASE, OPCODE_ESWITCH,
 };
 
 const EMPTY_BLOCK: (&str, MixedArgValue) = ("block_size", MixedArgValue::KnownType(ArgValue::U16(0)));
@@ -253,6 +254,11 @@ impl<'a> CompilationState<'a> {
                         let mut args = args.clone();
                         args.push(Self::empty_block());
                         self.make_inst_for_args(OPCODE_SWITCH, &args)
+                    }
+                    "case" => {
+                        let mut args = args.clone();
+                        args.push(Self::empty_block());
+                        self.make_inst_for_args(OPCODE_CASE, &args)
                     }
                     "eswitch" => {
                         self.dec_loop();
