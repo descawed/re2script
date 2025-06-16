@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use re2script::ScriptFormatter;
+use re2script::{ScriptFormatter, parse};
 use residat::re2::{RawRdt, RdtSection};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
@@ -86,6 +86,10 @@ enum Command {
         /// Remove nop instructions from the decompiled scripts
         #[arg(short, long)]
         nop_suppress: bool,
+    },
+    Compile {
+        /// Path to the file to compile
+        input: PathBuf,
     },
 }
 
@@ -183,6 +187,14 @@ fn decompile(
     Ok(())
 }
 
+fn compile(input: &Path) -> Result<()> {
+    // TODO: actually compile the script
+    let code = fs::read_to_string(input)?;
+    println!("{:?}", parse(&code)?);
+    
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let command = Cli::parse().command;
     
@@ -194,6 +206,9 @@ fn main() -> Result<()> {
             let (init, exec) = get_script_buffers(&input, format)?;
             let formatter = ScriptFormatter::new(comment_ids, all_args, keyword_threshold, nop_suppress);
             decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), formatter, output_paths.output.as_deref())
+        }
+        Command::Compile { input } => {
+            compile(&input)
         }
     }
 }

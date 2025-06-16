@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
 
-use anyhow::{anyhow, Error, Result};
-
 use crate::constants::{search_constant, NameStore};
 use crate::instruction::{ArgValue, ArithmeticOperator, ComparisonOperator};
 
@@ -84,6 +82,13 @@ pub struct Argument {
 }
 
 impl Argument {
+    pub const fn new(name: Option<String>, value: Expression) -> Self {
+        Self {
+            name,
+            value,
+        }
+    }
+    
     pub const fn named(name: String, value: Expression) -> Self {
         Self {
             name: Some(name),
@@ -205,26 +210,6 @@ impl Display for Operator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlagOperator {
-    Assign,
-    Equal,
-    NotEqual,
-}
-
-impl TryFrom<Operator> for FlagOperator {
-    type Error = Error;
-
-    fn try_from(value: Operator) -> Result<Self, Self::Error> {
-        Ok(match value {
-            Operator::Assign => Self::Assign,
-            Operator::Equal => Self::Equal,
-            Operator::NotEqual => Self::Equal,
-            _ => return Err(anyhow!("Operator {:?} is not valid for flags", value)),
-        })
-    }
-}
-
 fn write_block(f: &mut Formatter<'_>, head: impl Display, body: &[Statement]) -> std::fmt::Result {
     write!(f, "{}\n{{\n", head)?;
 
@@ -240,7 +225,8 @@ fn write_block(f: &mut Formatter<'_>, head: impl Display, body: &[Statement]) ->
 pub enum Statement {
     Instruction(String, Vec<Argument>),
     GoTo(String),
-    FlagOperation { bank: u8, bit: u8, value: bool, op: FlagOperator },
+    FlagCheck { bank: u8, bit: u8, value: bool },
+    FlagSet { bank: u8, bit: u8, value: Expression },
     VarOperation { id: u8, op: Operator, source: Expression },
     ForLoop(Expression),
     Block(Box<Statement>, Vec<Statement>),
@@ -254,20 +240,18 @@ impl Display for Statement {
             Self::GoTo(label) => write!(f, "goto {}", label),
             Self::ForLoop(source) => write!(f, "for {}", source),
             Self::Label(label, stmt) => write!(f, "{}:\n{}", label, stmt),
-            Self::FlagOperation { bank, bit, value, op } => {
-                if (*op == FlagOperator::Equal && !value) || (*op == FlagOperator::NotEqual && *value) {
+            Self::FlagCheck { bank, bit, value } => {
+                if !*value {
                     // checking for flag to be false
                     write!(f, "!")?;
                 }
                 write!(f, "flag[{}][{}]", bank, bit)?;
-                if *op == FlagOperator::Assign {
-                    write!(f, " = {}", value)?;
-                }
                 Ok(())
             }
+            Self::FlagSet { bank, bit, value } => write!(f, "flag[{}][{}] = {}", bank, bit, value),
             Self::VarOperation { id, op, source } => {
                 match op {
-                    Operator::BitNot => write!(f, "var[{}] = ~var[{}]", id, id),
+                    Operator::BitNot => write!(f, "~var[{}]", id),
                     Operator::Value => write!(f, "var[{}]", id),
                     _ => write!(f, "var[{}] {} {}", id, op, source),
                 }
