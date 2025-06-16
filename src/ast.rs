@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
-
+use crate::ArithmeticOperator::{Add, BitAnd, BitNot, BitOr, BitXor, Div, LeftShift, Mod, Mul, RightShift, SignedRightShift, Sub};
+use crate::ComparisonOperator::{BitMask, BooleanVariable, Equal, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, NotEqual};
 use crate::constants::{search_constant, NameStore};
 use crate::instruction::{ArgValue, ArithmeticOperator, ComparisonOperator};
 
@@ -102,6 +103,14 @@ impl Argument {
             value,
         }
     }
+    
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+    
+    pub const fn value(&self) -> &Expression {
+        &self.value
+    }
 }
 
 impl Display for Argument {
@@ -141,6 +150,50 @@ pub enum Operator {
 impl Operator {
     pub const fn is_unary(&self) -> bool {
         matches!(self, Self::BitNot | Self::Value)
+    }
+    
+    pub const fn is_arithmetic(&self) -> bool {
+        matches!(self,
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Mod
+            | Self::BitAnd | Self::BitOr | Self::BitXor | Self::BitNot
+            | Self::LeftShift | Self::RightShift | Self::SignedRightShift
+        )
+    }
+    
+    pub const fn arithmetic_operator(&self) -> Option<ArithmeticOperator> {
+        Some(match self {
+            Self::Add => Add,
+            Self::Sub => Sub,
+            Self::Mul => Mul,
+            Self::Div => Div,
+            Self::Mod => Mod,
+            Self::BitOr => BitOr,
+            Self::BitAnd => BitAnd,
+            Self::BitXor => BitXor,
+            Self::BitNot => BitNot,
+            Self::LeftShift => LeftShift,
+            Self::RightShift => RightShift,
+            Self::SignedRightShift => SignedRightShift,
+            _ => return None,
+        })
+    }
+    
+    pub const fn comparison_operator(&self) -> Option<ComparisonOperator> {
+        Some(match self {
+            Self::Equal => Equal,
+            Self::NotEqual => NotEqual,
+            Self::LessThan => LessThan,
+            Self::LessThanOrEqual => LessThanOrEqual,
+            Self::GreaterThan => GreaterThan,
+            Self::GreaterThanOrEqual => GreaterThanOrEqual,
+            Self::BitMask => BitMask,
+            Self::Value => BooleanVariable,
+            _ => return None,       
+        })
+    }
+    
+    pub fn arg_value(&self) -> Option<ArgValue> {
+        self.arithmetic_operator().map(ArgValue::from).or_else(|| self.comparison_operator().map(ArgValue::from))
     }
 }
 
@@ -306,6 +359,21 @@ impl Function {
             name,
             body,
         }
+    }
+    
+    pub const fn is_init(&self) -> bool {
+        matches!(self.name, FunctionName::Init)
+    }
+    
+    pub const fn name(&self) -> Option<&str> {
+        match &self.name {
+            FunctionName::Init => None,
+            FunctionName::Exec(name) => Some(name.as_str()),
+        }
+    }
+    
+    pub fn body(&self) -> &[Statement] {
+        &self.body
     }
 }
 

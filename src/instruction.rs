@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Seek};
+use std::io::{Cursor, Read, Write, Seek};
 use std::sync::LazyLock;
 
 use anyhow::{bail, Result};
@@ -141,6 +141,7 @@ impl ArgType {
             | (Self::SceType, ArgValue::SceType(_))
             | (Self::CharacterId, ArgValue::CharacterId(_))
             | (Self::FunctionIndex, ArgValue::FunctionIndex(_))
+            | (Self::ArithmeticOperator, ArgValue::ArithmeticOperator(_))
             | (Self::ComparisonOperator, ArgValue::ComparisonOperator(_))
             | (Self::Bool, ArgValue::Bool(_))
             | (Self::VariableIndex, ArgValue::VariableIndex(_))
@@ -243,6 +244,14 @@ impl ArgValue {
 
     pub const fn matches(&self, arg_type: ArgType) -> bool {
         arg_type.matches(*self)
+    }
+    
+    pub const fn is_compatible(&self, arg_type: ArgType) -> bool {
+        self.matches(arg_type) || arg_type.fallback_type().matches(*self)
+    }
+    
+    pub fn is_valid(&self) -> bool {
+        self.type_().make_value(self.as_int()).is_some()
     }
 
     pub const fn is_simple_integer(&self) -> bool {
@@ -472,6 +481,27 @@ impl Arg {
     pub const fn name(&self) -> &'static str {
         self.name
     }
+    
+    /// Write the binary representation of this argument to the provided sink
+    pub fn write<T: Write + Seek>(&self, mut f: T, value: ArgValue) -> Result<()> {
+        match self.fallback_type {
+            ArgType::U8 => {
+                let value = value.as_int() as u8;
+                f.write_all(&value.to_le_bytes())
+            }
+            ArgType::I16 => {
+                let value = value.as_int() as i16;
+                f.write_all(&value.to_le_bytes())
+            }
+            ArgType::U16 => {
+                let value = value.as_int() as u16;
+                f.write_all(&value.to_le_bytes())
+            }
+            _ => unreachable!(),
+        }?;
+        
+        Ok(())
+    } 
 }
 
 macro_rules! arg {
@@ -594,10 +624,10 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
         InstructionDescription::simple("wsleeping"),
         InstructionDescription::new("for", vec![Arg::align(), Arg::block_size(), Arg::new("count", ArgType::U16)]),
         InstructionDescription::aligned("next"),
-        InstructionDescription::block("while"), // FIXME: offset 1 is not padding, it's actually used
+        InstructionDescription::new("while", vec![Arg::calculated("condition_size", ArgType::U8), Arg::block_size()]),
         InstructionDescription::aligned("ewhile"),
         InstructionDescription::block("do"),
-        InstructionDescription::one("edwhile", Arg::calculated("loop_id", ArgType::U8)),
+        InstructionDescription::one("edwhile", Arg::calculated("condition_size", ArgType::U8)),
         // TODO: make a dedicated arg type for variable and flag IDs once I figure out how many of them there are
         InstructionDescription::new("switch", vec![var!("var"), Arg::block_size()]),
         InstructionDescription::new("case", vec![Arg::align(), Arg::block_size(), Arg::new("case_value", ArgType::U16)]),
@@ -616,8 +646,8 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
         InstructionDescription::simple("nop"),
         InstructionDescription::simple("nop"),
         InstructionDescription::simple("nop"),
-        InstructionDescription::new("ck", vec![Arg::new("flag", ArgType::U8), Arg::new("bit", ArgType::U8), Arg::bool("value")]),
-        InstructionDescription::new("set", vec![Arg::new("flag", ArgType::U8), Arg::new("bit", ArgType::U8), Arg::bool("value")]),
+        InstructionDescription::new("ck", vec![Arg::new("bank", ArgType::U8), Arg::new("bit", ArgType::U8), Arg::bool("value")]),
+        InstructionDescription::new("set", vec![Arg::new("bank", ArgType::U8), Arg::new("bit", ArgType::U8), Arg::bool("value")]),
         InstructionDescription::new("cmp", vec![Arg::align(), var!("lhs"), Arg::new("op", ArgType::ComparisonOperator), Arg::new("rhs", ArgType::I16)]),
         InstructionDescription::new("save", vec![var!("lhs"), Arg::new("rhs", ArgType::I16)]),
         InstructionDescription::new("copy", vec![var!("lhs"), var!("rhs")]),
@@ -1158,6 +1188,34 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
 });
 
 #[derive(Debug, Clone)]
+pub enum MixedArgValue {
+    KnownType(ArgValue),
+    UnknownType(i32),
+}
+
+impl MixedArgValue {
+    pub fn resolve(&self, info: &Arg) -> ArgValue {
+        match self {
+            Self::KnownType(value) => *value,
+            Self::UnknownType(value) => info.make_value(*value),
+        }
+    }
+    
+    pub fn as_int(&self) -> i32 {
+        match self {
+            Self::KnownType(value) => value.as_int(),
+            Self::UnknownType(value) => *value,
+        }
+    }
+}
+
+impl From<ArgValue> for MixedArgValue {
+    fn from(value: ArgValue) -> Self {
+        Self::KnownType(value)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Instruction {
     description: &'static InstructionDescription,
     arg_values: Vec<ArgValue>,
@@ -1165,6 +1223,69 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    pub fn make_from_opcode(opcode: u8, offset: usize, positional_arguments: &[MixedArgValue], keyword_arguments: &[(&str, MixedArgValue)]) -> Result<Self> {
+        let opcode = opcode as usize;
+        if opcode >= INSTRUCTION_DESCRIPTIONS.len() {
+            bail!("Invalid opcode: {:02X}", opcode);
+        }
+        
+        let description = &INSTRUCTION_DESCRIPTIONS[opcode];
+        let mut arg_values = Vec::with_capacity(description.args.len());
+        let mut positional_index = 0usize;
+        for arg_info in &description.args {
+            let mut found = false;
+            
+            for (name, value) in keyword_arguments {
+                if *name == arg_info.name {
+                    let arg_value = value.resolve(arg_info);
+                    if !arg_value.is_compatible(arg_info.type_) {
+                        bail!("Argument {} of instruction {} is a {:?}-type argument and is not compatible with a value of {:?}", arg_info.name, description.name, arg_info.type_, arg_value);
+                    }
+                    arg_values.push(arg_value);
+                    found = true;
+                    break;
+                }
+            }
+            
+            if found {
+                continue;
+            }
+            
+            if !arg_info.is_keyword_only {
+                let value = positional_arguments[positional_index].resolve(arg_info);
+                if !value.is_compatible(arg_info.type_) {
+                    bail!("Argument {} of instruction {} is a {:?}-type argument and is not compatible with a value of {:?}", arg_info.name, description.name, arg_info.type_, value);
+                }
+                arg_values.push(value);
+                positional_index += 1;
+                continue;
+            }
+            
+            if let Some(default_value) = arg_info.default {
+                arg_values.push(default_value);
+                continue;
+            }
+            
+            bail!("No value provided for argument {} of instruction {}", arg_info.name, description.name);
+        }
+        
+        Ok(Self {
+            description,
+            arg_values,
+            offset,
+        })
+    }
+
+    pub fn make_from_name(name: &str, offset: usize, positional_arguments: &[MixedArgValue], keyword_arguments: &[(&str, MixedArgValue)]) -> Result<Self> {
+        for description in &*INSTRUCTION_DESCRIPTIONS {
+            if description.name == name {
+                return Self::make_from_opcode(description.opcode, offset, positional_arguments, keyword_arguments);
+            }
+        }
+        
+        bail!("Unknown instruction: {}", name)
+    }
+    
     pub fn read<T: Read + Seek>(mut f: T) -> Result<Self> {
         let offset = f.stream_position()? as usize;
         
@@ -1185,6 +1306,16 @@ impl Instruction {
             arg_values,
             offset,
         })
+    }
+    
+    pub fn write<T: Write + Seek>(&self, mut f: T) -> Result<()> {
+        f.write_all(&self.description.opcode.to_le_bytes())?;
+        
+        for (arg_info, arg_value) in self.description.args.iter().zip(self.arg_values.iter()) {
+            arg_info.write(&mut f, *arg_value)?;
+        }
+        
+        Ok(())
     }
 
     pub fn read_function(buf: &[u8]) -> Vec<Self> {
@@ -1305,6 +1436,36 @@ impl Instruction {
 
     pub fn arg(&self, name: &str) -> Option<ArgValue> {
         self.args([name])[0]
+    }
+    
+    pub fn set_args(&mut self, values: &[(&str, ArgValue)]) -> Result<()> {
+        let mut num_found = 0;
+        
+        for (i, arg) in self.description.args.iter().enumerate() {
+            for (name, value) in values {
+                if arg.name == *name {
+                    if !value.is_compatible(arg.type_) {
+                        bail!("Argument {} of instruction {} is a {:?}-type argument and is not compatible with a value of {:?}", arg.name, self.description.name, arg.type_, value);
+                    }
+                    
+                    self.arg_values[i] = *value;
+                    num_found += 1;
+                    if num_found == values.len() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        if num_found != values.len() {
+            bail!("Did not recognize all arguments provided to instruction {}: {:?}", self.description.name, values);
+        } else {
+            Ok(())
+        }
+    }
+    
+    pub fn set_arg(&mut self, name: &str, value: ArgValue) -> Result<()> {
+        self.set_args(&[(&name, value)])
     }
 
     pub fn arg_values(&self) -> &[ArgValue] {

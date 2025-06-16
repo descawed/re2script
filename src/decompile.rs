@@ -57,11 +57,11 @@ impl ScriptFormatter {
         }
 
         if instruction.is_flag_op() {
-            if let [Some(flag), Some(bit), Some(value)] = instruction.args(["flag", "bit", "value"]) {
+            if let [Some(bank), Some(bit), Some(value)] = instruction.args(["bank", "bit", "value"]) {
                 return if instruction.opcode() == OPCODE_SET {
-                    Statement::FlagSet { bank: flag.as_int() as u8, bit: bit.as_int() as u8, value: value.into() }
+                    Statement::FlagSet { bank: bank.as_int() as u8, bit: bit.as_int() as u8, value: value.into() }
                 } else {
-                    Statement::FlagCheck { bank: flag.as_int() as u8, bit: bit.as_int() as u8, value: value.as_int() != 0 }
+                    Statement::FlagCheck { bank: bank.as_int() as u8, bit: bit.as_int() as u8, value: value.as_int() != 0 }
                 };
             }
         }
