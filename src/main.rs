@@ -110,6 +110,10 @@ enum Command {
         /// Without this, the output file is assumed to be an SCD and simply overwritten.
         #[arg(short, long)]
         rdt: bool,
+        /// When compiling to RDT, if a script is smaller than the one already in the RDT, pad it
+        /// with zeros instead of shifting the other sections
+        #[arg(short, long, requires = "rdt")]
+        pad: bool,
     },
 }
 
@@ -210,14 +214,29 @@ fn decompile(
     Ok(())
 }
 
-fn update_rdt(path: &Path, buf: Vec<u8>, rdt_section: RdtSection) -> Result<()> {
+fn patch_rdt(rdt: &mut RawRdt, buf: Option<Vec<u8>>, section: RdtSection, pad: bool) {
+    let Some(mut buf) = buf else {
+        return;
+    };
+
+    if pad {
+        let current_size = rdt.section(section).len();
+        if buf.len() < current_size {
+            buf.resize(current_size, 0);
+        }
+    }
+
+    rdt.replace_section(section, buf);
+}
+
+fn update_rdt(path: &Path, buf: Vec<u8>, section: RdtSection, pad: bool) -> Result<()> {
     let mut rdt = read_rdt(path)?;
-    rdt.replace_section(rdt_section, buf);
+    patch_rdt(&mut rdt, Some(buf), section, pad);
     rdt.write(File::create(path)?)?;
     Ok(())
 }
 
-fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool) -> Result<()> {
+fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool, pad: bool) -> Result<()> {
     let code = fs::read_to_string(input)?;
     
     let mut compiler = Compiler::new();
@@ -237,13 +256,8 @@ fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool) -> Result<()
         if is_rdt {
             let mut rdt = read_rdt(output_path)?;
 
-            if let Some(init_buf) = init {
-                rdt.replace_section(RdtSection::InitScript, init_buf);
-            }
-
-            if let Some(exec_buf) = exec {
-                rdt.replace_section(RdtSection::ExecScript, exec_buf);
-            }
+            patch_rdt(&mut rdt, init, RdtSection::InitScript, pad);
+            patch_rdt(&mut rdt, exec, RdtSection::ExecScript, pad);
 
             rdt.write(File::create(output_path)?)?;
         } else {
@@ -257,7 +271,7 @@ fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool) -> Result<()
     } else {
         if let (Some(init_path), Some(init_buf)) = (output_paths.init_output.as_deref(), init) {
             if is_rdt {
-                update_rdt(init_path, init_buf, RdtSection::InitScript)?;
+                update_rdt(init_path, init_buf, RdtSection::InitScript, pad)?;
             } else {
                 fs::write(init_path, init_buf)?;
             }
@@ -265,7 +279,7 @@ fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool) -> Result<()
         
         if let (Some(exec_path), Some(exec_buf)) = (output_paths.exec_output.as_deref(), exec) {
             if is_rdt {
-                update_rdt(exec_path, exec_buf, RdtSection::ExecScript)?;
+                update_rdt(exec_path, exec_buf, RdtSection::ExecScript, pad)?;
             } else {
                 fs::write(exec_path, exec_buf)?;
             }
@@ -287,8 +301,8 @@ fn main() -> Result<()> {
             let formatter = ScriptFormatter::new(comment_ids, all_args, keyword_threshold, nop_suppress);
             decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), formatter, output_paths.output.as_deref())
         }
-        Command::Compile { input, output_paths, rdt } => {
-            compile(&input, &output_paths, rdt)
+        Command::Compile { input, output_paths, rdt, pad } => {
+            compile(&input, &output_paths, rdt, pad)
         }
     }
 }
