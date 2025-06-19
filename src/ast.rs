@@ -341,7 +341,7 @@ pub enum FunctionName {
 impl Display for FunctionName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Init => write!(f, "init"),
+            Self::Init => write!(f, "main"),
             Self::Exec(name) => write!(f, "function {}", name),
         }
     }

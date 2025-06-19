@@ -187,6 +187,7 @@ fn parser<'a>() -> impl Parser<'a, &'a str, Vec<Function>, extra::Err<Rich<'a, c
         .then_ignore(just('}'));
 
     let init_func = text::keyword("init")
+        .or(text::keyword("main"))
         .padded_by(ignore)
         .ignore_then(block_body.clone())
         .map(|body| Function::new(FunctionName::Init, body));
