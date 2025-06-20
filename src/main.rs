@@ -232,9 +232,9 @@ fn decompile(
     Ok(())
 }
 
-fn patch_rdt(rdt: &mut RawRdt, buf: Option<Vec<u8>>, section: RdtSection, pad: bool) {
+fn patch_rdt(rdt: &mut RawRdt, buf: Option<Vec<u8>>, section: RdtSection, pad: bool) -> Result<()> {
     let Some(mut buf) = buf else {
-        return;
+        return Ok(());
     };
 
     if pad {
@@ -244,12 +244,12 @@ fn patch_rdt(rdt: &mut RawRdt, buf: Option<Vec<u8>>, section: RdtSection, pad: b
         }
     }
 
-    rdt.replace_section(section, buf);
+    rdt.replace_section(section, buf)
 }
 
 fn update_rdt(path: &Path, buf: Vec<u8>, section: RdtSection, pad: bool) -> Result<()> {
     let mut rdt = read_rdt(path)?;
-    patch_rdt(&mut rdt, Some(buf), section, pad);
+    patch_rdt(&mut rdt, Some(buf), section, pad)?;
     rdt.write(File::create(path)?)?;
     Ok(())
 }
@@ -300,8 +300,8 @@ fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool, pad: bool) -
         if is_rdt {
             let mut rdt = read_rdt(output_path)?;
 
-            patch_rdt(&mut rdt, init, RdtSection::InitScript, pad);
-            patch_rdt(&mut rdt, exec, RdtSection::ExecScript, pad);
+            patch_rdt(&mut rdt, init, RdtSection::InitScript, pad)?;
+            patch_rdt(&mut rdt, exec, RdtSection::ExecScript, pad)?;
 
             rdt.write(File::create(output_path)?)?;
         } else {
