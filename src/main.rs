@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use re2script::{Compiler, ScriptFormatter};
+use re2script::{bioclone, Compiler, ScriptFormatter};
 use residat::re2::{RawRdt, RdtSection};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
@@ -16,6 +16,8 @@ enum Format {
     Init,
     /// A previously extracted execution script SCD
     Exec,
+    /// An RDT extracted by BioClone
+    BioClone,
 }
 
 #[derive(Parser, Debug)]
@@ -136,78 +138,84 @@ fn extract_scd(rdt_path: &Path, init_path: Option<&Path>, exec_path: Option<&Pat
     Ok(())
 }
 
-fn get_script_buffers(path: &Path, format: Format) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>)> {
-    Ok(match format {
-        Format::Rdt => {
-            let rdt = read_rdt(path)?;
-            let init_buf = rdt.section(RdtSection::InitScript).to_vec();
-            let exec_buf = rdt.section(RdtSection::ExecScript).to_vec();
-            (Some(init_buf), Some(exec_buf))
-        }
-        Format::Init => {
-            let buf = fs::read(path)?;
-            (Some(buf), None)
-        }
-        Format::Exec => {
-            let buf = fs::read(path)?;
-            (None, Some(buf))
-        }
+fn get_scripts(path: &Path, format: Format, mut formatter: ScriptFormatter) -> Result<(Option<String>, Option<String>)> {
+    Ok(if format == Format::BioClone {
+        let (init_buf, exec_buf) = bioclone::read_script(path)?;
+        
+        let parsed_init = if init_buf.len() > 1 {
+            bail!("Did not expect more than one main function");
+        } else if init_buf.is_empty() {
+            None
+        } else {
+            Some(formatter.parse_function(&init_buf[0]).to_string())
+        };
+        let parsed_exec = (!exec_buf.is_empty()).then(|| formatter.parse_functions(&exec_buf).to_string());
+
+        (parsed_init, parsed_exec)
+    } else {
+        let (init_buf, exec_buf) = match format {
+            Format::Rdt => {
+                let rdt = read_rdt(path)?;
+                let init_buf = rdt.section(RdtSection::InitScript).to_vec();
+                let exec_buf = rdt.section(RdtSection::ExecScript).to_vec();
+                (Some(init_buf), Some(exec_buf))
+            }
+            Format::Init => {
+                let buf = fs::read(path)?;
+                (Some(buf), None)
+            }
+            Format::Exec => {
+                let buf = fs::read(path)?;
+                (None, Some(buf))
+            }
+            _ => unreachable!(),
+        };
+
+        (
+            init_buf.map(|b| formatter.parse_function(&b).to_string()),
+            match exec_buf {
+                Some(b) => Some(formatter.parse_script(&b)?.to_string()),
+                None => None,
+            },
+        )
     })
 }
 
 fn decompile(
-    init_buf: Option<Vec<u8>>, init_path: Option<&Path>,
-    exec_buf: Option<Vec<u8>>, exec_path: Option<&Path>,
-    mut formatter: ScriptFormatter, combined_path: Option<&Path>,
+    init_source: Option<String>, init_path: Option<&Path>,
+    exec_source: Option<String>, exec_path: Option<&Path>,
+    combined_path: Option<&Path>,
 ) -> Result<()> {
-    if init_buf.is_none() && init_path.is_some() {
+    if init_source.is_none() && init_path.is_some() {
         bail!("Cannot export an initialization script from an execution script");
     }
     
-    if exec_buf.is_none() && exec_path.is_some() {
+    if exec_source.is_none() && exec_path.is_some() {
         bail!("Cannot export an execution script from an initialization script");
     }
     
     let init_path = init_path.or(combined_path);
-    let parsed_init = if let (Some(init_buf), Some(_)) = (init_buf, init_path) {
-        Some(formatter.parse_init_script(&init_buf))
-    } else {
-        None
-    };
-    
     let exec_path = exec_path.or(combined_path);
-    let parsed_exec = if let (Some(exec_buf), Some(_)) = (exec_buf, exec_path) {
-        Some(formatter.parse_exec_script(&exec_buf)?)
-    } else {
-        None
-    };
     
     if let Some(combined_path) = combined_path {
         let mut out = String::new();
-        if let Some(init) = parsed_init {
-            out.push_str(&init.to_string());
+        if let Some(init) = init_source {
+            out.push_str(&init);
             out.push_str("\n\n");
         }
         
-        if let Some(exec) = parsed_exec {
-            for func in exec {
-                out.push_str(&func.to_string());
-                out.push_str("\n\n");
-            }
+        if let Some(exec) = exec_source {
+            out.push_str(&exec);
         }
         
         fs::write(combined_path, out)?;
     } else {
-        if let (Some(init), Some(init_path)) = (parsed_init, init_path) {
-            fs::write(init_path, init.to_string())?;
+        if let (Some(init), Some(init_path)) = (init_source, init_path) {
+            fs::write(init_path, init)?;
         }
         
-        if let (Some(exec), Some(exec_path)) = (parsed_exec, exec_path) {
-            let mut f = File::create(exec_path)?;
-            for func in exec {
-                f.write_all(&func.to_string().into_bytes())?;
-                f.write_all(b"\n\n")?;
-            }
+        if let (Some(exec), Some(exec_path)) = (exec_source, exec_path) {
+            fs::write(exec_path, exec)?;
         }
     }
     
@@ -297,9 +305,9 @@ fn main() -> Result<()> {
             extract_scd(&rdt, output_paths.init_script.as_deref(), output_paths.exec_script.as_deref())
         }
         Command::Decompile { input, output_paths, format, comment_ids, all_args, keyword_threshold, nop_suppress } => {
-            let (init, exec) = get_script_buffers(&input, format)?;
             let formatter = ScriptFormatter::new(comment_ids, all_args, keyword_threshold, nop_suppress);
-            decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), formatter, output_paths.output.as_deref())
+            let (init, exec) = get_scripts(&input, format, formatter)?;
+            decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), output_paths.output.as_deref())
         }
         Command::Compile { input, output_paths, rdt, pad } => {
             compile(&input, &output_paths, rdt, pad)

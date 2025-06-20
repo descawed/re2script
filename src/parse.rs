@@ -3,7 +3,7 @@ use chumsky::prelude::*;
 
 use crate::ast::*;
 
-fn parser<'a>() -> impl Parser<'a, &'a str, Vec<Function>, extra::Err<Rich<'a, char>>> {
+fn parser<'a>() -> impl Parser<'a, &'a str, Script, extra::Err<Rich<'a, char>>> {
     let line_comment = just("//")
         .then(any().and_is(just('\n').not()).repeated())
         .padded_by(text::inline_whitespace())
@@ -206,6 +206,7 @@ fn parser<'a>() -> impl Parser<'a, &'a str, Vec<Function>, extra::Err<Rich<'a, c
         .at_least(1)
         .collect::<Vec<_>>()
         .padded_by(ignore)
+        .map(Script::new)
         .then_ignore(end())
 }
 
@@ -216,7 +217,7 @@ fn get_line_number(text: &str, index: usize) -> (usize, usize) {
     (line_num, index - line_start)
 }
 
-pub fn parse<T: AsRef<str>>(script: T) -> Result<Vec<Function>> {
+pub fn parse<T: AsRef<str>>(script: T) -> Result<Script> {
     let script = script.as_ref();
     let parsed = parser().parse(script);
     parsed.into_result().map_err(|errors| {

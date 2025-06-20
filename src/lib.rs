@@ -1,6 +1,8 @@
 mod ast;
 pub use ast::*;
 
+pub mod bioclone;
+
 mod compile;
 pub use compile::*;
 

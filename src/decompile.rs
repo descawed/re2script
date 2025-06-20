@@ -235,7 +235,7 @@ impl ScriptFormatter {
         Function::new(name, body)
     }
 
-    fn format_script(&mut self, functions: &[Vec<Instruction>]) -> Vec<Function> {
+    fn format_script(&mut self, functions: &[impl AsRef<[Instruction]>]) -> Script {
         // add our generated function names to the name store
         for i in 0..functions.len() {
             self.name_store.add(format!("sub{i}"), ArgValue::FunctionIndex(i as u8));
@@ -243,10 +243,10 @@ impl ScriptFormatter {
         
         let mut out = Vec::with_capacity(functions.len());
         for (i, function) in functions.iter().enumerate() {
-            out.push(self.format_instructions(FunctionName::Exec(format!("sub{i}")), &function));
+            out.push(self.format_instructions(FunctionName::Exec(format!("sub{i}")), function.as_ref()));
         }
 
-        out
+        Script::new(out)
     }
     
     fn goto_offset(instruction: &Instruction) -> Option<usize> {
@@ -278,7 +278,7 @@ impl ScriptFormatter {
         self.name_store.clear();
     }
 
-    pub fn parse_init_script(&mut self, buf: &[u8]) -> Function {
+    pub fn parse_function(&mut self, buf: &[u8]) -> Function {
         self.reset();
         
         let instructions = Instruction::read_function(buf);
@@ -290,19 +290,27 @@ impl ScriptFormatter {
         self.format_instructions(FunctionName::Init, &instructions)
     }
 
-    pub fn parse_exec_script(&mut self, buf: &[u8]) -> Result<Vec<Function>> {
+    fn decompile_functions(&mut self, script: &[impl AsRef<[Instruction]>]) -> Script {
         self.reset();
         
-        let script = Instruction::read_script(buf)?;
-
         let mut valid_offsets = HashSet::new();
-        for function in &script {
-            Self::collect_offsets(function, &mut valid_offsets);
+        for function in script {
+            Self::collect_offsets(function.as_ref(), &mut valid_offsets);
         }
-        for function in &script {
-            self.find_labels(function, &valid_offsets);
+        for function in script {
+            self.find_labels(function.as_ref(), &valid_offsets);
         }
-        
-        Ok(self.format_script(&script))
+
+        self.format_script(script)
+    }
+    
+    pub fn parse_functions(&mut self, bufs: &[impl AsRef<[u8]>]) -> Script {
+        let script: Vec<_> = bufs.iter().map(|b| Instruction::read_function(b.as_ref())).collect();
+        self.decompile_functions(&script)
+    }
+
+    pub fn parse_script(&mut self, buf: &[u8]) -> Result<Script> {
+        let script = Instruction::read_script(buf)?;
+        Ok(self.decompile_functions(&script))
     }
 }

@@ -426,3 +426,63 @@ impl Display for Function {
         write_block(f, &self.name, &self.body)
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct Script(Vec<Function>);
+
+impl Script {
+    pub const fn new(functions: Vec<Function>) -> Self {
+        Self(functions)
+    }
+}
+
+impl From<Vec<Function>> for Script {
+    fn from(value: Vec<Function>) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for Script {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for func in &self.0 {
+            write!(f, "{}\n\n", func)?;
+        }
+        
+        Ok(())
+    }
+}
+
+impl std::ops::Index<usize> for Script {
+    type Output = Function;
+    
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IntoIterator for Script {
+    type Item = Function;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }   
+}
+
+impl<'a> IntoIterator for &'a Script {
+    type Item = &'a Function;
+    type IntoIter = std::slice::Iter<'a, Function>;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }  
+}
+
+impl<'a> IntoIterator for &'a mut Script {
+    type Item = &'a mut Function;
+    type IntoIter = std::slice::IterMut<'a, Function>;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }  
+}
