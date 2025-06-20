@@ -8,6 +8,7 @@ use crate::constants::NameStore;
 use crate::instruction::{
     ArgValue, Instruction,
     OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE, OPCODE_GOTO,
+    OPCODE_ENDIF, OPCODE_EWHILE, OPCODE_NEXT, OPCODE_BREAK, OPCODE_ESWITCH, OPCODE_EVT_END,
 };
 
 #[derive(Debug, Clone)]
@@ -167,8 +168,19 @@ impl ScriptFormatter {
                 }
                 self.make_statement(instruction)
             };
+
+            // don't include nops if we're suppressing nops. likewise, unless we're displaying
+            // everything (all_args), don't show block end instructions, as they're implied.
+            // however, if there's a block end instruction that's NOT at the end of the block, we
+            // still show that, as it's not implicit.
+            let should_include = (!self.suppress_nops || !instruction.is_nop())
+                &&
+                (
+                self.all_args || bytes_read < block_size ||
+                    !matches!(instruction.opcode(), OPCODE_ENDIF | OPCODE_EWHILE | OPCODE_NEXT | OPCODE_BREAK | OPCODE_ESWITCH)
+                );
             
-            if !self.suppress_nops || !instruction.is_nop() {
+            if should_include {
                 block.push(stmt);
             }
 
@@ -197,12 +209,23 @@ impl ScriptFormatter {
                 continue;
             }
             
+            // unless we're showing everything (all_args), don't show the function end instruction,
+            // as it's implicit
+            if !self.all_args && instruction.opcode() == OPCODE_EVT_END {
+                break;
+            }
+            
             let stmt = if instruction.is_block_start() {
                 self.handle_block(instruction, &mut iterator, &mut 0)
             } else {
                 self.make_statement(instruction)
             };
             body.push(stmt);
+            
+            // evt_end at the top level of a function is the end of the function
+            if instruction.opcode() == OPCODE_EVT_END {
+                break;
+            }
         }
 
         Function::new(name, body)

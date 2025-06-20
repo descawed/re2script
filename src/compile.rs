@@ -2,16 +2,7 @@ use std::io::Cursor;
 
 use anyhow::{bail, Result};
 
-use crate::{
-    ArgValue, Argument, Expression, Function, Instruction, MixedArgValue, NameStore, Statement,
-    parse,
-    OPCODE_CK, OPCODE_SET, OPCODE_GOTO,
-    OPCODE_CMP, OPCODE_CALC, OPCODE_CALC2, OPCODE_SAVE, OPCODE_COPY,
-    OPCODE_FOR, OPCODE_FOR2, OPCODE_NEXT,
-    OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_ENDIF,
-    OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE,
-    OPCODE_SWITCH, OPCODE_CASE, OPCODE_ESWITCH,
-};
+use crate::{ArgValue, Argument, Expression, Function, Instruction, InstructionDescription, MixedArgValue, NameStore, Statement, parse, INSTRUCTION_DESCRIPTIONS, OPCODE_CK, OPCODE_SET, OPCODE_GOTO, OPCODE_NOP, OPCODE_CMP, OPCODE_CALC, OPCODE_CALC2, OPCODE_SAVE, OPCODE_COPY, OPCODE_FOR, OPCODE_FOR2, OPCODE_NEXT, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_ENDIF, OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE, OPCODE_SWITCH, OPCODE_CASE, OPCODE_BREAK, OPCODE_ESWITCH, OPCODE_EVT_END};
 
 const EMPTY_BLOCK: (&str, MixedArgValue) = ("block_size", MixedArgValue::KnownType(ArgValue::U16(0)));
 
@@ -176,9 +167,55 @@ impl<'a> CompilationState<'a> {
     fn dec_loop(&mut self) {
         self.loop_ctr = self.loop_ctr.overflowing_sub(1).0;
     }
+
+    fn invalid_block_instruction(opcode: u8) -> String {
+        match Self::instruction_name(opcode) {
+            Some(name) => format!("{name} is not a valid instruction to start a block"),
+            None => format!("Unknown opcode: {:02X}", opcode),
+        }
+    }
+
+    fn instruction_name(opcode: u8) -> Option<&'static str> {
+        INSTRUCTION_DESCRIPTIONS.get(opcode as usize).map(InstructionDescription::name)
+    }
+
+    const fn block_end_opcode(opcode: u8) -> Option<u8> {
+        Some(match opcode {
+            OPCODE_IFEL_CK => OPCODE_ENDIF,
+            OPCODE_WHILE => OPCODE_EWHILE,
+            OPCODE_DO => OPCODE_EDWHILE,
+            OPCODE_FOR | OPCODE_FOR2 => OPCODE_NEXT,
+            OPCODE_CASE => OPCODE_BREAK,
+            OPCODE_SWITCH => OPCODE_ESWITCH,
+            _ => return None,
+        })
+    }
+
+    fn add_block_end(&mut self, opcode: u8) -> Result<()> {
+        // because edwhile requires conditions, we don't handle it automatically
+        if opcode == OPCODE_DO {
+            bail!("Can't automatically insert edwhile for do blocks because we don't know what conditions to use");
+        }
+
+        let Some(end_opcode) = Self::block_end_opcode(opcode) else {
+            bail!(Self::invalid_block_instruction(opcode));
+        };
+
+        self.make_inst(end_opcode, &[])
+    }
+
+    fn add_endif(&mut self, if_index: usize) -> Result<()> {
+        // increase the if block size to account for the new instruction
+        let if_inst = &mut self.instructions[if_index];
+        let block_size = if_inst.arg("block_size").unwrap().as_int() + 2;
+        if_inst.set_arg("block_size", ArgValue::U16(block_size as u16))?;
+
+        self.make_inst(OPCODE_ENDIF, &[])
+    }
     
     fn process_block_statements(&mut self, body: &'a [Statement]) -> Result<()> {
         let mut ifel_index = None;
+        let mut if_block_index_for_endif_check = None;
         for stmt in body {
             // kind of a hack, but the block size calculation for ifel_ck depends on whether there's
             // an else_ck, because if so, we need to jump OVER that instruction and directly into its
@@ -206,13 +243,24 @@ impl<'a> CompilationState<'a> {
                 ifel_index = None;
             }
             
-            self.process_statement(stmt)?;
+            self.process_statement(stmt, &mut if_block_index_for_endif_check)?;
+        }
+        
+        // if this block ended with an if block with no endif, insert it
+        if let Some(if_block_index) = if_block_index_for_endif_check {
+            self.add_endif(if_block_index)?;
         }
         
         Ok(())
     }
     
-    fn process_statement(&mut self, stmt: &'a Statement) -> Result<()> {
+    fn process_statement(&mut self, stmt: &'a Statement, if_block_index_for_endif_check: &mut Option<usize>) -> Result<()> {
+        if if_block_index_for_endif_check.is_some() && !matches!(stmt, Statement::Block(_, _)) {
+            // we had an if block that didn't end in an endif, and now we know that it's not followed
+            // by an else block, so we need to insert the block end instruction
+            self.add_endif(if_block_index_for_endif_check.take().unwrap())?;
+        }
+
         match stmt {
             Statement::Instruction(name, args) => {
                 // special handling for control flow instructions
@@ -403,13 +451,48 @@ impl<'a> CompilationState<'a> {
                 }
             }
             Statement::Block(head, body) => {
+                // if there was an if block without an endif just before this block, check if we
+                // need to add one here
+                if if_block_index_for_endif_check.is_some() {
+                    if head.instruction_name() == "else_ck" {
+                        // if blocks don't need an endif if they're followed by an else block
+                        *if_block_index_for_endif_check = None;
+                    } else {
+                        self.add_endif(if_block_index_for_endif_check.take().unwrap())?;
+                    }
+                }
+
                 let head_index = self.instructions.len();
-                self.process_statement(head)?;
+                self.process_statement(head, if_block_index_for_endif_check)?;
+
+                let opcode = self.instructions[head_index].opcode();
                 
                 let body_offset = self.offset;
                 self.process_block_statements(body)?;
+
+                // automatically insert block end instruction if it's not already present
+                if opcode != OPCODE_DO {
+                    match Self::block_end_opcode(opcode) {
+                        Some(end_opcode) => {
+                            // the is_block check ensures that if the last thing in our block was a
+                            // nested block of the same kind, we don't interpret its end instruction
+                            // as our own end instruction
+                            if self.instructions.last().unwrap().opcode() != end_opcode || body.last().map(Statement::is_block).unwrap_or(true) {
+                                if opcode == OPCODE_IFEL_CK {
+                                    // can't automatically insert yet because we need to see if an
+                                    // else is coming up next, so just remember to check on the
+                                    // next instruction
+                                    *if_block_index_for_endif_check = Some(head_index);
+                                } else {
+                                    self.add_block_end(opcode)?;
+                                }
+                            }
+                        }
+                        None => self.error(Self::invalid_block_instruction(opcode)),
+                    }
+                }
                 
-                let opcode = {
+                {
                     // even though we might need this mut ref again in a minute, we need to drop it
                     // here so we can loop through the body below
                     let head_inst = &mut self.instructions[head_index];
@@ -421,8 +504,7 @@ impl<'a> CompilationState<'a> {
                         0
                     };
                     head_inst.set_arg("block_size", ArgValue::U16(block_size as u16))?;
-                    head_inst.opcode()
-                };
+                }
 
                 let body_index = head_index + 1;
                 if body_index < self.instructions.len() {
@@ -508,7 +590,7 @@ impl<'a> CompilationState<'a> {
                 
                 self.labels.push(target);
                 
-                self.process_statement(inner)
+                self.process_statement(inner, if_block_index_for_endif_check)
             }
             Statement::BlankLine => Ok(()), // these "statements" only come from the decompiler and can be safely ignored
         }
@@ -521,6 +603,11 @@ impl<'a> CompilationState<'a> {
     fn process_function(&mut self, function: &'a Function) -> Result<usize> {
         let start_offset = self.offset;
         self.process_block_statements(function.body())?;
+        
+        // if the function doesn't end in an evt_end instruction, insert one implicitly
+        if self.instructions.last().map(Instruction::opcode).unwrap_or(OPCODE_NOP) != OPCODE_EVT_END {
+            self.make_inst(OPCODE_EVT_END, &[])?;
+        }
         
         Ok(self.offset - start_offset)
     }

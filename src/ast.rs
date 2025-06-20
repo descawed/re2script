@@ -287,6 +287,39 @@ pub enum Statement {
     BlankLine, // ugly hack to give me some control over the formatting when building the AST from a decompiled script
 }
 
+impl Statement {
+    pub fn instruction_name(&self) -> &str {
+        match self {
+            Self::Instruction(name, _) => name,
+            Self::GoTo(_) => "goto",
+            Self::FlagCheck { .. } => "ck",
+            Self::FlagSet { .. } => "set",
+            Self::VarOperation { op, source, .. } => match (source, op) {
+                (Expression::Var(_), Operator::Assign) => "copy",
+                (_, Operator::Assign) => "save",
+                (Expression::Var(_), _) if op.is_arithmetic() => "calc2",
+                (_, _) if op.is_arithmetic() => "calc",
+                _ => "cmp",
+            },
+            Self::ForLoop(arg) => match arg {
+                Expression::Var(_) => "for2",
+                _ => "for",           
+            },
+            Self::Block(head, _) => head.instruction_name(),
+            Self::Label(_, inner) => inner.instruction_name(),
+            Self::BlankLine => "",       
+        }
+    }
+    
+    pub fn is_block(&self) -> bool {
+        match self {
+            Self::Block(_, _) => true,
+            Self::Label(_, stmt) => stmt.is_block(),
+            _ => false,
+        }
+    }
+}
+
 impl Display for Statement {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

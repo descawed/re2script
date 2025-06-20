@@ -11,6 +11,7 @@ pub const NUM_VARIABLES: usize = 36;
 
 // opcodes for instructions that have special handling in the parser
 pub const OPCODE_NOP: u8 = 0x00;
+pub const OPCODE_EVT_END: u8 = 0x01;
 pub const OPCODE_IFEL_CK: u8 = 0x06;
 pub const OPCODE_ELSE_CK: u8 = 0x07;
 pub const OPCODE_ENDIF: u8 = 0x08;
@@ -25,6 +26,7 @@ pub const OPCODE_CASE: u8 = 0x14;
 pub const OPCODE_DEFAULT: u8 = 0x15;
 pub const OPCODE_ESWITCH: u8 = 0x16;
 pub const OPCODE_GOTO: u8 = 0x17;
+pub const OPCODE_BREAK: u8 = 0x1A;
 pub const OPCODE_FOR2: u8 = 0x1B;
 pub const OPCODE_NOP1E: u8 = 0x1E;
 pub const OPCODE_NOP1F: u8 = 0x1F;
@@ -370,6 +372,21 @@ impl Arg {
         }
     }
 
+    /// Create an argument with a default value
+    ///
+    /// A value for this arg may be passed as a keyword argument. If no value is provided, the
+    /// default value will be used.
+    pub const fn keyword(name: &'static str, default: ArgValue) -> Self {
+        Self {
+            name,
+            type_: default.type_(),
+            fallback_type: default.type_().fallback_type(),
+            default: Some(default),
+            is_keyword_only: true,
+            is_calculated: false,
+        }
+    }
+
     /// Create an argument whose value is unused
     ///
     /// A value for this arg may be passed by keyword only. If no value is provided, the default
@@ -602,6 +619,10 @@ impl InstructionDescription {
 
         Ok(values)
     }
+    
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
 }
 
 pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTRUCTIONS]> = LazyLock::new(|| {
@@ -747,7 +768,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "door_aot_set",
             vec![
                 arg8!("aot"),
-                arg!("sce", SceType),
+                Arg::keyword("sce", ArgValue::SceType(SceType::Door)),
                 arg8!("sat"),
                 arg8!("floor"),
                 arg8!("super"),
@@ -853,7 +874,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "item_aot_set",
             vec![
                 arg8!("aot"),
-                arg!("sce", SceType),
+                Arg::keyword("sce", ArgValue::SceType(SceType::Item)),
                 arg8!("sat"),
                 arg8!("floor"),
                 arg8!("super"),
@@ -976,7 +997,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "door_aot_set_4p",
             vec![
                 arg8!("aot"),
-                arg!("sce", SceType),
+                Arg::keyword("sce", ArgValue::SceType(SceType::Door)),
                 arg8!("sat"),
                 arg8!("floor"),
                 arg8!("super"),
@@ -1008,7 +1029,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "item_aot_set_4p",
             vec![
                 arg8!("aot"),
-                arg!("sce", SceType),
+                Arg::keyword("sce", ArgValue::SceType(SceType::Item)),  
                 arg8!("sat"),
                 arg8!("floor"),
                 arg8!("super"),
@@ -1140,7 +1161,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "item_aot_set2",
             vec![
                 arg8!("aot"),
-                arg!("sce", SceType),
+                Arg::keyword("sce", ArgValue::SceType(SceType::Item)),
                 arg8!("sat"),
                 arg8!("floor"),
                 arg8!("super"),
