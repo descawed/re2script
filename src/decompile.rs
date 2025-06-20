@@ -4,7 +4,7 @@ use std::iter::Peekable;
 use anyhow::Result;
 
 use crate::ast::*;
-use crate::constants::NameStore;
+use crate::constants::{NameStore, flag_description};
 use crate::instruction::{
     ArgValue, Instruction,
     OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE, OPCODE_GOTO,
@@ -59,10 +59,14 @@ impl ScriptFormatter {
 
         if instruction.is_flag_op() {
             if let [Some(bank), Some(bit), Some(value)] = instruction.args(["bank", "bit", "value"]) {
-                return if instruction.opcode() == OPCODE_SET {
-                    Statement::FlagSet { bank: bank.as_int() as u8, bit: bit.as_int() as u8, value: value.into() }
-                } else {
-                    Statement::FlagCheck { bank: bank.as_int() as u8, bit: bit.as_int() as u8, value: value.as_int() != 0 }
+                let bank = bank.as_int() as u8;
+                let bit = bit.as_int() as u8;
+                
+                return match (instruction.opcode(), flag_description(bank, bit)) {
+                    (OPCODE_SET, Some(description)) if self.comment_ids => Statement::AnnotatedFlagSet { bank, bit, value: value.into(), annotation: String::from(description) },
+                    (OPCODE_SET, _) => Statement::FlagSet { bank, bit, value: value.into() },
+                    (_, Some(description)) if self.comment_ids => Statement::AnnotatedFlagCheck { bank, bit, value: value.as_int() != 0, annotation: String::from(description) },
+                    _ => Statement::FlagCheck { bank, bit, value: value.as_int() != 0 },
                 };
             }
         }

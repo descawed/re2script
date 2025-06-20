@@ -285,6 +285,8 @@ pub enum Statement {
     Block(Box<Statement>, Vec<Statement>),
     Label(String, Box<Statement>),
     BlankLine, // ugly hack to give me some control over the formatting when building the AST from a decompiled script
+    AnnotatedFlagCheck { bank: u8, bit: u8, value: bool, annotation: String },
+    AnnotatedFlagSet { bank: u8, bit: u8, value: Expression, annotation: String },
 }
 
 impl Statement {
@@ -292,8 +294,8 @@ impl Statement {
         match self {
             Self::Instruction(name, _) => name,
             Self::GoTo(_) => "goto",
-            Self::FlagCheck { .. } => "ck",
-            Self::FlagSet { .. } => "set",
+            Self::FlagCheck { .. } | Self::AnnotatedFlagCheck { .. } => "ck",
+            Self::FlagSet { .. } | Self::AnnotatedFlagSet { .. } => "set",
             Self::VarOperation { op, source, .. } => match (source, op) {
                 (Expression::Var(_), Operator::Assign) => "copy",
                 (_, Operator::Assign) => "save",
@@ -335,6 +337,15 @@ impl Display for Statement {
                 Ok(())
             }
             Self::FlagSet { bank, bit, value } => write!(f, "flag[{}][{}] = {}", bank, bit, value),
+            Self::AnnotatedFlagCheck { bank, bit, value, annotation } => {
+                if !*value {
+                    // checking for flag to be false
+                    write!(f, "!")?;
+                }
+                write!(f, "flag[{}][{}] /* {} */", bank, bit, annotation)?;
+                Ok(())
+            }
+            Self::AnnotatedFlagSet { bank, bit, value, annotation } => write!(f, "flag[{}][{}] /* {} */ = {}", bank, bit, annotation, value),
             Self::VarOperation { id, op, source } => {
                 match op {
                     Operator::BitNot => write!(f, "~var[{}]", id),

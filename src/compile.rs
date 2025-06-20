@@ -344,7 +344,7 @@ impl<'a> CompilationState<'a> {
                     ],
                 )
             }
-            Statement::FlagCheck { bank, bit, value } => {
+            Statement::FlagCheck { bank, bit, value } | Statement::AnnotatedFlagCheck { bank, bit, value, .. } => {
                 self.make_inst(
                     OPCODE_CK,
                     &[
@@ -354,7 +354,7 @@ impl<'a> CompilationState<'a> {
                     ],
                 )
             }
-            Statement::FlagSet { bank, bit, value } => {
+            Statement::FlagSet { bank, bit, value } | Statement::AnnotatedFlagSet { bank, bit, value, .. } => {
                 let value = self.resolve_expression(value);
                 self.make_inst(
                     OPCODE_SET,

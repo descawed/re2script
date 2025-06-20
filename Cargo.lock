@@ -398,7 +398,7 @@ checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
 [[package]]
 name = "residat"
 version = "0.1.0"
-source = "git+https://github.com/descawed/residat.git?branch=master#287fbd4124852c1bfe1240fc42ea7700acbd81b3"
+source = "git+https://github.com/descawed/residat.git?branch=master#b29b87216e950cbb91dcc0b935114e6a1a8cfe4b"
 dependencies = [
  "anyhow",
  "binrw",

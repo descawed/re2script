@@ -83,6 +83,13 @@ pub fn search_constant(search_value: ArgValue) -> Option<&'static str> {
     None
 }
 
+pub const fn flag_description(bank: u8, bit: u8) -> Option<&'static str> {
+    Some(match (bank, bit) {
+        (1, 1) => "B scenario",
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct NameStore {
     names: HashMap<String, ArgValue>,
