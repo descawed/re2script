@@ -1,6 +1,5 @@
 use std::fs;
 use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
@@ -61,8 +60,8 @@ struct DecompilePaths {
 #[derive(Args, Debug)]
 #[group(required = true, multiple = true)]
 struct CompilePaths {
-    /// Path to write the compiled script to. This must either be an RDT or the script you compiled
-    /// must have contained only one of either an init or exec script.
+    /// Path to write the compiled script to. This must either be an RDT, a BioClone project, or the
+    /// script you compiled must have contained only one of either an init or exec script.
     output: Option<PathBuf>,
     /// Path to write the compiled initialization script to
     #[arg(short, long, conflicts_with = "output")]
@@ -70,6 +69,14 @@ struct CompilePaths {
     /// Path to write the compiled execution script to
     #[arg(short, long, conflicts_with = "output")]
     exec_output: Option<PathBuf>,
+}
+
+impl CompilePaths {
+    fn combined_path(&self) -> Option<&Path> {
+        self.output.as_deref().or_else(|| {
+            (self.init_output.is_some() && self.exec_output.is_some() && self.init_output == self.exec_output).then(|| self.init_output.as_deref().unwrap())
+        })
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -112,6 +119,9 @@ enum Command {
         /// Without this, the output file is assumed to be an SCD and simply overwritten.
         #[arg(short, long)]
         rdt: bool,
+        /// Indicates that the output file(s) are a folder containing an RDT extracted by BioClone.
+        #[arg(short, long, conflicts_with = "rdt")]
+        bio_clone: bool,
         /// When compiling to RDT, if a script is smaller than the one already in the RDT, pad it
         /// with zeros instead of shifting the other sections
         #[arg(short, long, requires = "rdt")]
@@ -244,6 +254,32 @@ fn update_rdt(path: &Path, buf: Vec<u8>, section: RdtSection, pad: bool) -> Resu
     Ok(())
 }
 
+fn compile_bio_clone(input: &Path, output_paths: &CompilePaths) -> Result<()> {
+    let code = fs::read_to_string(input)?;
+
+    let mut compiler = Compiler::new();
+    compiler.parse(code)?;
+
+    let (init, exec) = compiler.compile_functions()?;
+    
+    let init = init.unwrap_or_else(Vec::new);
+    let exec = exec.unwrap_or_else(Vec::new);
+    
+    if let Some(output_path) = output_paths.combined_path() {
+        bioclone::write_script(output_path, Some(&[init]), Some(&exec))
+    } else {
+        if let Some(init_path) = output_paths.init_output.as_deref() {
+            bioclone::write_script(init_path, Some(&[init]), None)?;
+        }
+        
+        if let Some(exec_path) = output_paths.exec_output.as_deref() {
+            bioclone::write_script(exec_path, None, Some(&exec))?;       
+        }
+        
+        Ok(())
+    }
+}
+
 fn compile(input: &Path, output_paths: &CompilePaths, is_rdt: bool, pad: bool) -> Result<()> {
     let code = fs::read_to_string(input)?;
     
@@ -309,8 +345,12 @@ fn main() -> Result<()> {
             let (init, exec) = get_scripts(&input, format, formatter)?;
             decompile(init, output_paths.init_output.as_deref(), exec, output_paths.exec_output.as_deref(), output_paths.output.as_deref())
         }
-        Command::Compile { input, output_paths, rdt, pad } => {
-            compile(&input, &output_paths, rdt, pad)
+        Command::Compile { input, output_paths, rdt, bio_clone, pad } => {
+            if bio_clone {
+                compile_bio_clone(&input, &output_paths)
+            } else {
+                compile(&input, &output_paths, rdt, pad)
+            }
         }
     }
 }

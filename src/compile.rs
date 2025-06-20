@@ -1,8 +1,19 @@
+use std::fmt::{Display, Formatter};
 use std::io::Cursor;
+use std::ops::Range;
 
 use anyhow::{bail, Result};
 
-use crate::{ArgValue, Argument, Expression, Function, Instruction, InstructionDescription, MixedArgValue, NameStore, Statement, parse, INSTRUCTION_DESCRIPTIONS, OPCODE_CK, OPCODE_SET, OPCODE_GOTO, OPCODE_NOP, OPCODE_CMP, OPCODE_CALC, OPCODE_CALC2, OPCODE_SAVE, OPCODE_COPY, OPCODE_FOR, OPCODE_FOR2, OPCODE_NEXT, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_ENDIF, OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE, OPCODE_SWITCH, OPCODE_CASE, OPCODE_BREAK, OPCODE_ESWITCH, OPCODE_EVT_END};
+use crate::{
+    ArgValue, Argument, Expression, Function, Instruction, InstructionDescription, MixedArgValue,
+    NameStore, Statement,
+    parse, INSTRUCTION_DESCRIPTIONS,
+    OPCODE_CK, OPCODE_SET, OPCODE_GOTO, OPCODE_NOP,
+    OPCODE_CMP, OPCODE_CALC, OPCODE_CALC2, OPCODE_SAVE, OPCODE_COPY,
+    OPCODE_FOR, OPCODE_FOR2, OPCODE_NEXT, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_ENDIF,
+    OPCODE_WHILE, OPCODE_EWHILE, OPCODE_DO, OPCODE_EDWHILE, OPCODE_SWITCH, OPCODE_CASE,
+    OPCODE_BREAK, OPCODE_ESWITCH, OPCODE_EVT_END
+};
 
 const EMPTY_BLOCK: (&str, MixedArgValue) = ("block_size", MixedArgValue::KnownType(ArgValue::U16(0)));
 
@@ -10,6 +21,15 @@ const EMPTY_BLOCK: (&str, MixedArgValue) = ("block_size", MixedArgValue::KnownTy
 pub enum Level {
     Warning,
     Error,
+}
+
+impl Display for Level {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::Warning => "Warning",
+            Self::Error => "Error",
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +56,7 @@ struct CompilationState<'a> {
     ifel_ctr: u8,
     loop_ctr: u8,
     log: Vec<(Level, String)>,
+    function_indexes: Vec<usize>,
 }
 
 impl<'a> CompilationState<'a> {
@@ -49,6 +70,7 @@ impl<'a> CompilationState<'a> {
             ifel_ctr: u8::MAX,
             loop_ctr: u8::MAX,
             log: Vec::new(),
+            function_indexes: Vec::new(),
         }
     }
     
@@ -229,7 +251,12 @@ impl<'a> CompilationState<'a> {
                         is_ifel = true;
                     } else if name == "else_ck" {
                         if let Some(index) = ifel_index {
-                            let ifel_inst = &mut self.instructions[index];
+                            // there could have been an endif inserted before the ifel_ck we expected
+                            let ifel_inst = if self.instructions[index].name() == "endif" {
+                                &mut self.instructions[index + 1]
+                            } else {
+                                &mut self.instructions[index]
+                            };
                             // it would be nicer to get the size to add from the else_ck instruction
                             // itself, but we haven't created it yet
                             let block_size = ifel_inst.arg("block_size").unwrap().as_int() + 4;
@@ -245,7 +272,7 @@ impl<'a> CompilationState<'a> {
             
             self.process_statement(stmt, &mut if_block_index_for_endif_check)?;
         }
-        
+
         // if this block ended with an if block with no endif, insert it
         if let Some(if_block_index) = if_block_index_for_endif_check {
             self.add_endif(if_block_index)?;
@@ -471,7 +498,7 @@ impl<'a> CompilationState<'a> {
                 self.process_block_statements(body)?;
 
                 // automatically insert block end instruction if it's not already present
-                if opcode != OPCODE_DO {
+                if !matches!(opcode, OPCODE_DO | OPCODE_ELSE_CK) {
                     match Self::block_end_opcode(opcode) {
                         Some(end_opcode) => {
                             // the is_block check ensures that if the last thing in our block was a
@@ -601,9 +628,11 @@ impl<'a> CompilationState<'a> {
     }
     
     fn process_function(&mut self, function: &'a Function) -> Result<usize> {
+        self.function_indexes.push(self.instructions.len());
+        
         let start_offset = self.offset;
         self.process_block_statements(function.body())?;
-        
+
         // if the function doesn't end in an evt_end instruction, insert one implicitly
         if self.instructions.last().map(Instruction::opcode).unwrap_or(OPCODE_NOP) != OPCODE_EVT_END {
             self.make_inst(OPCODE_EVT_END, &[])?;
@@ -612,19 +641,52 @@ impl<'a> CompilationState<'a> {
         Ok(self.offset - start_offset)
     }
     
-    fn compile(&self) -> Result<Vec<u8>> {
+    pub fn validate(&self) -> Result<()> {
         if self.has_unresolved_gotos() {
-            bail!("Attempted to compile while there are still unresolved gotos. First missing label: {}", self.unresolved_gotos[0].1);
+            bail!("Attempted to validate while there are still unresolved gotos. First missing label: {}", self.unresolved_gotos[0].1);
         }
         
-        let buf_size = self.instructions.iter().map(Instruction::size).sum::<usize>();
+        if !self.completed() {
+            bail!("Errors occurred during compilation:\n{}", self.log.iter().map(|(level, msg)| {
+                format!("{}: {}", level, msg)
+            }).collect::<Vec<_>>().join("\n"));
+        }
+        
+        Ok(())
+    }
+    
+    fn compile_range(&self, range: Range<usize>) -> Result<Vec<u8>> {
+        let instructions = &self.instructions[range];
+        let buf_size = instructions.iter().map(Instruction::size).sum::<usize>();
         let mut buf = vec![0u8; buf_size];
         let mut cursor = Cursor::new(&mut buf);
-        for instruction in &self.instructions {
+        for instruction in instructions {
             instruction.write(&mut cursor)?;
         }
         
         Ok(buf)
+    }
+    
+    fn compile_functions(&self) -> Result<Vec<Vec<u8>>> {
+        self.validate()?;
+        
+        let mut functions = Vec::with_capacity(self.function_indexes.len());
+        for pair in self.function_indexes.windows(2) {
+            functions.push(self.compile_range(pair[0]..pair[1])?);
+        }
+        
+        // last function
+        if let Some(&start) = self.function_indexes.last() {
+            functions.push(self.compile_range(start..self.instructions.len())?);
+        }
+        
+        Ok(functions)
+    }
+
+    fn compile(&self) -> Result<Vec<u8>> {
+        self.validate()?;
+
+        self.compile_range(0..self.instructions.len())
     }
 }
 
@@ -703,6 +765,27 @@ impl Compiler {
         final_buf.append(&mut code_buf);
         
         Ok(final_buf)
+    }
+    
+    pub fn compile_functions(&self) -> Result<(Option<Vec<u8>>, Option<Vec<Vec<u8>>>)> {
+        let init = match self.init_script.is_some() {
+            true => Some(self.compile_init()?),
+            false => None,
+        };
+
+        let exec = match self.exec_script.is_empty() {
+            true => None,
+            false => Some({
+                let mut state = self.make_state();
+                for function in &self.exec_script {
+                    state.process_function(function)?;
+                }
+                
+                state.compile_functions()?
+            }),
+        };
+
+        Ok((init, exec))
     }
     
     pub fn compile(&self) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>)> {

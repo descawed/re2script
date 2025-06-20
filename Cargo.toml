@@ -9,5 +9,6 @@ repository = "https://github.com/descawed/re2script"
 anyhow = "1.0.98"
 chumsky = "1.0.0-alpha.8"
 clap = { version = "4.5.40", features = ["derive"] }
+encoding_rs = "0.8.35"
 num_enum = "0.7.3"
 residat = { git = "https://github.com/descawed/residat.git", branch = "master" }
