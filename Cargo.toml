@@ -5,6 +5,10 @@ authors = ["descawed <re2script@descawed.com>"]
 edition = "2024"
 repository = "https://github.com/descawed/re2script"
 
+[profile.release]
+lto = true
+strip = true
+
 [dependencies]
 anyhow = "1.0.98"
 chumsky = "1.0.0-alpha.8"
