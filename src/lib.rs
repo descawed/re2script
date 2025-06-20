@@ -3,6 +3,9 @@ pub use ast::*;
 
 pub mod bioclone;
 
+#[cfg(feature = "cli")]
+pub mod cli;
+
 mod compile;
 pub use compile::*;
 
