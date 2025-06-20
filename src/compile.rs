@@ -74,10 +74,6 @@ impl<'a> CompilationState<'a> {
         }
     }
     
-    fn succeeded(&self) -> bool {
-        self.log.is_empty()
-    }
-    
     fn completed(&self) -> bool {
         !self.log.iter().any(|log| log.0 == Level::Error)
     }
