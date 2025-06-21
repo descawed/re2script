@@ -81,7 +81,22 @@ pub static SCRIPT_CONSTANTS: LazyLock<HashMap<&'static str, ArgValue>> = LazyLoc
     constants.insert("part0_y_size", ArgValue::MemberId(36));
     constants.insert("next_x_pos", ArgValue::MemberId(39));
     constants.insert("next_z_pos", ArgValue::MemberId(40));
+    
+    constants.insert("x_trans", ArgValue::SpeedId(0));
+    constants.insert("y_trans", ArgValue::SpeedId(1));
+    constants.insert("z_trans", ArgValue::SpeedId(2));
+    constants.insert("x_rot", ArgValue::SpeedId(3));
+    constants.insert("y_rot", ArgValue::SpeedId(4));
+    constants.insert("z_rot", ArgValue::SpeedId(5));
+    constants.insert("accel_x_trans", ArgValue::SpeedId(6));
+    constants.insert("accel_y_trans", ArgValue::SpeedId(7));
+    constants.insert("accel_z_trans", ArgValue::SpeedId(8));
+    constants.insert("accel_x_rot", ArgValue::SpeedId(9));
+    constants.insert("accel_y_rot", ArgValue::SpeedId(10));
+    constants.insert("accel_z_rot", ArgValue::SpeedId(11));
 
+    constants.insert("stage", ArgValue::VariableIndex(24));
+    constants.insert("room", ArgValue::VariableIndex(25));
     constants.insert("rnd", ArgValue::VariableIndex(29));
     
     constants.insert("any", ArgValue::EventIndex(ANY_EVENT));

@@ -9,6 +9,7 @@ pub const ANY_EVENT: u8 = u8::MAX;
 pub const NUM_EVENTS: u8 = 14;
 pub const NUM_VARIABLES: usize = 36;
 pub const NUM_MEMBERS: usize = 44;
+pub const NUM_SPEEDS: usize = 12;
 
 // opcodes for instructions that have special handling in the parser
 pub const OPCODE_NOP: u8 = 0x00;
@@ -130,6 +131,7 @@ pub enum ArgType {
     Bool,
     VariableIndex,
     MemberId,
+    SpeedId,
 }
 
 impl ArgType {
@@ -150,6 +152,7 @@ impl ArgType {
             | (Self::Bool, ArgValue::Bool(_))
             | (Self::VariableIndex, ArgValue::VariableIndex(_))
             | (Self::MemberId, ArgValue::MemberId(_))
+            | (Self::SpeedId, ArgValue::SpeedId(_))
         )
     }
 
@@ -157,7 +160,8 @@ impl ArgType {
         match self {
             Self::U8 | Self::EntityType | Self::EntityIndex | Self::EventIndex | Self::SceType
             | Self::CharacterId | Self::FunctionIndex | Self::ComparisonOperator
-            | Self::ArithmeticOperator | Self::Bool | Self::VariableIndex | Self::MemberId => Self::U8,
+            | Self::ArithmeticOperator | Self::Bool | Self::VariableIndex
+            | Self::MemberId | Self::SpeedId => Self::U8,
             Self::U16 | Self::Item => Self::U16, // FIXME: the size of an item argument actually varies by instruction
             Self::I16 => Self::I16,
         }
@@ -206,6 +210,7 @@ impl ArgType {
             },
             Self::VariableIndex => (value >= 0 && value < NUM_VARIABLES as i32).then_some(ArgValue::VariableIndex(value as u8)),
             Self::MemberId => (value >= 0 && value < NUM_MEMBERS as i32).then_some(ArgValue::MemberId(value as u8)),
+            Self::SpeedId => (value >= 0 && value < NUM_SPEEDS as i32).then_some(ArgValue::SpeedId(value as u8)),
         }
     }
 }
@@ -227,6 +232,7 @@ pub enum ArgValue {
     Bool(bool),
     VariableIndex(u8),
     MemberId(u8),
+    SpeedId(u8),
 }
 
 impl ArgValue {
@@ -247,6 +253,7 @@ impl ArgValue {
             Self::Bool(_) => ArgType::Bool,
             Self::VariableIndex(_) => ArgType::VariableIndex,
             Self::MemberId(_) => ArgType::MemberId,
+            Self::SpeedId(_) => ArgType::SpeedId,
         }
     }
 
@@ -283,6 +290,7 @@ impl ArgValue {
             Self::Bool(b) => *b as i32,
             Self::VariableIndex(i) => *i as i32,
             Self::MemberId(i) => *i as i32,
+            Self::SpeedId(i) => *i as i32,
         }
     }
 }
@@ -737,7 +745,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             ],
         ),
         InstructionDescription::new("work_set", vec![arg!("type", EntityType), arg!("id", EntityIndex)]),
-        InstructionDescription::new("speed_set", vec![arg8!("id"), Arg::u16("value")]),
+        InstructionDescription::new("speed_set", vec![arg!("id", SpeedId), Arg::i16("value")]),
         InstructionDescription::simple("add_speed"),
         InstructionDescription::simple("add_aspeed"),
         InstructionDescription::new(
