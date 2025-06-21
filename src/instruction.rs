@@ -8,6 +8,7 @@ use residat::re2::{CharacterId, Item, SceType, NUM_CHARACTERS, NUM_INSTRUCTIONS}
 pub const ANY_EVENT: u8 = u8::MAX;
 pub const NUM_EVENTS: u8 = 14;
 pub const NUM_VARIABLES: usize = 36;
+pub const NUM_MEMBERS: usize = 44;
 
 // opcodes for instructions that have special handling in the parser
 pub const OPCODE_NOP: u8 = 0x00;
@@ -128,6 +129,7 @@ pub enum ArgType {
     ArithmeticOperator,
     Bool,
     VariableIndex,
+    MemberId,
 }
 
 impl ArgType {
@@ -147,6 +149,7 @@ impl ArgType {
             | (Self::ComparisonOperator, ArgValue::ComparisonOperator(_))
             | (Self::Bool, ArgValue::Bool(_))
             | (Self::VariableIndex, ArgValue::VariableIndex(_))
+            | (Self::MemberId, ArgValue::MemberId(_))
         )
     }
 
@@ -154,7 +157,7 @@ impl ArgType {
         match self {
             Self::U8 | Self::EntityType | Self::EntityIndex | Self::EventIndex | Self::SceType
             | Self::CharacterId | Self::FunctionIndex | Self::ComparisonOperator
-            | Self::ArithmeticOperator | Self::Bool | Self::VariableIndex => Self::U8,
+            | Self::ArithmeticOperator | Self::Bool | Self::VariableIndex | Self::MemberId => Self::U8,
             Self::U16 | Self::Item => Self::U16, // FIXME: the size of an item argument actually varies by instruction
             Self::I16 => Self::I16,
         }
@@ -202,6 +205,7 @@ impl ArgType {
                 _ => None,
             },
             Self::VariableIndex => (value >= 0 && value < NUM_VARIABLES as i32).then_some(ArgValue::VariableIndex(value as u8)),
+            Self::MemberId => (value >= 0 && value < NUM_MEMBERS as i32).then_some(ArgValue::MemberId(value as u8)),
         }
     }
 }
@@ -222,6 +226,7 @@ pub enum ArgValue {
     ArithmeticOperator(ArithmeticOperator),
     Bool(bool),
     VariableIndex(u8),
+    MemberId(u8),
 }
 
 impl ArgValue {
@@ -241,6 +246,7 @@ impl ArgValue {
             Self::ArithmeticOperator(_) => ArgType::ArithmeticOperator,
             Self::Bool(_) => ArgType::Bool,
             Self::VariableIndex(_) => ArgType::VariableIndex,
+            Self::MemberId(_) => ArgType::MemberId,
         }
     }
 
@@ -276,6 +282,7 @@ impl ArgValue {
             Self::ArithmeticOperator(op) => *op as i32,
             Self::Bool(b) => *b as i32,
             Self::VariableIndex(i) => *i as i32,
+            Self::MemberId(i) => *i as i32,
         }
     }
 }
@@ -663,7 +670,7 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
         InstructionDescription::aligned("break"),
         InstructionDescription::new("for2", vec![Arg::align(), Arg::block_size(), Arg::align(), var!("count")]),
         InstructionDescription::simple("break_point"),
-        InstructionDescription::new("work_copy", vec![var!("source"), Arg::new("destination", ArgType::U8), Arg::bool("is_word")]),
+        InstructionDescription::new("work_copy", vec![var!("source"), arg!("destination", MemberId), Arg::bool("is_word")]),
         InstructionDescription::simple("nop"),
         InstructionDescription::simple("nop"),
         InstructionDescription::simple("nop"),
@@ -741,9 +748,8 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             "dir_set",
             vec![Arg::align(), Arg::i16("x"), Arg::i16("y"), Arg::i16("z")],
         ),
-        // FIXME: make an argument type for members
-        InstructionDescription::new("member_set", vec![Arg::new("member", ArgType::U8), Arg::i16("value")]),
-        InstructionDescription::new("member_set2", vec![Arg::new("destination", ArgType::U8), var!("source")]),
+        InstructionDescription::new("member_set", vec![arg!("member", MemberId), Arg::i16("value")]),
+        InstructionDescription::new("member_set2", vec![arg!("destination", MemberId), var!("source")]),
         InstructionDescription::new(
             "se_on",
             vec![arg8!("vab"), Arg::i16("edt"), Arg::i16("data0"), Arg::i16("x"), Arg::i16("y"), Arg::i16("z")],
@@ -793,10 +799,10 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
             ],
         ),
         InstructionDescription::one("cut_auto", Arg::bool("on_off")),
-        InstructionDescription::new("member_copy", vec![var!("dest"), Arg::new("source", ArgType::U8)]),
+        InstructionDescription::new("member_copy", vec![var!("dest"), arg!("source", MemberId)]),
         InstructionDescription::new(
             "member_cmp",
-            vec![Arg::align(), arg8!("member"), Arg::new("op", ArgType::ComparisonOperator), Arg::i16("value")],
+            vec![Arg::align(), arg!("member", MemberId), Arg::new("op", ArgType::ComparisonOperator), Arg::i16("value")],
         ),
         InstructionDescription::new("plc_motion", vec![arg8!("motion_id"), arg8!("mode"), arg8!("param")]),
         InstructionDescription::new(
@@ -918,11 +924,11 @@ pub static INSTRUCTION_DESCRIPTIONS: LazyLock<[InstructionDescription; NUM_INSTR
         ),
         InstructionDescription::new(
             "member_calc",
-            vec![Arg::align(), arg!("op", ArithmeticOperator), Arg::new("member", ArgType::U8), Arg::i16("value")],
+            vec![Arg::align(), arg!("op", ArithmeticOperator), arg!("member", MemberId), Arg::i16("value")],
         ),
         InstructionDescription::new(
             "member_calc2",
-            vec![arg!("op", ArithmeticOperator), Arg::new("member", ArgType::U8), var!("var")],
+            vec![arg!("op", ArithmeticOperator), arg!("member", MemberId), var!("var")],
         ),
         InstructionDescription::new(
             "sce_bgmtbl_set",

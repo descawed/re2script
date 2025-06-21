@@ -53,6 +53,36 @@ pub static SCRIPT_CONSTANTS: LazyLock<HashMap<&'static str, ArgValue>> = LazyLoc
     constants.insert("status", SceType::Status.into());
     constants.insert("hikidashi", SceType::Hikidashi.into());
     constants.insert("windows", SceType::Windows.into());
+
+    constants.insert("flags_low", ArgValue::MemberId(0));
+    constants.insert("flags_high", ArgValue::MemberId(1));
+    // FIXME: these seem like they might be something different for objects
+    constants.insert("state1", ArgValue::MemberId(2));
+    constants.insert("state2", ArgValue::MemberId(3));
+    constants.insert("state3", ArgValue::MemberId(4));
+    constants.insert("state4", ArgValue::MemberId(5));
+    constants.insert("id", ArgValue::MemberId(6));
+    constants.insert("type", ArgValue::MemberId(7));
+    constants.insert("active_aot", ArgValue::MemberId(9));
+    constants.insert("x_pos", ArgValue::MemberId(11));
+    constants.insert("y_pos", ArgValue::MemberId(12));
+    constants.insert("z_pos", ArgValue::MemberId(13));
+    constants.insert("x_angle", ArgValue::MemberId(14));
+    constants.insert("y_angle", ArgValue::MemberId(15));
+    constants.insert("z_angle", ArgValue::MemberId(16));
+    constants.insert("floor", ArgValue::MemberId(17));
+    constants.insert("floor_y", ArgValue::MemberId(19));
+    constants.insert("x_vel", ArgValue::MemberId(28));
+    constants.insert("y_vel", ArgValue::MemberId(29));
+    constants.insert("z_vel", ArgValue::MemberId(30));
+    constants.insert("part0_x_trans", ArgValue::MemberId(32));
+    constants.insert("part0_y_trans", ArgValue::MemberId(33));
+    constants.insert("part0_z_trans", ArgValue::MemberId(34));
+    constants.insert("part0_y_size", ArgValue::MemberId(36));
+    constants.insert("next_x_pos", ArgValue::MemberId(39));
+    constants.insert("next_z_pos", ArgValue::MemberId(40));
+
+    constants.insert("rnd", ArgValue::VariableIndex(29));
     
     constants.insert("any", ArgValue::EventIndex(ANY_EVENT));
     
