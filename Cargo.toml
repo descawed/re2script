@@ -10,11 +10,11 @@ lto = true
 strip = true
 
 [dependencies]
-anyhow = "1.0.98"
+anyhow = "1.0.100"
 chumsky = "1.0.0-alpha.8"
-clap = { version = "4.5.40", features = ["derive"], optional = true }
+clap = { version = "4.5.51", features = ["derive"], optional = true }
 encoding_rs = "0.8.35"
-num_enum = "0.7.3"
+num_enum = "0.7.5"
 residat = { git = "https://github.com/descawed/residat.git", branch = "master" }
 
 [features]
