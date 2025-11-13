@@ -7,7 +7,7 @@ use crate::ast::*;
 use crate::constants::{NameStore, flag_description};
 use crate::instruction::{
     ArgValue, Instruction,
-    OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE, OPCODE_GOTO,
+    OPCODE_SET, OPCODE_IFEL_CK, OPCODE_ELSE_CK, OPCODE_CASE, OPCODE_DEFAULT, OPCODE_GOTO,
     OPCODE_ENDIF, OPCODE_EWHILE, OPCODE_NEXT, OPCODE_BREAK, OPCODE_ESWITCH, OPCODE_EVT_END,
 };
 
@@ -122,24 +122,33 @@ impl ScriptFormatter {
             (head_opcode, child_opcode),
             (OPCODE_IFEL_CK, OPCODE_ELSE_CK)
             | (OPCODE_CASE, OPCODE_CASE)
+            | (OPCODE_CASE, OPCODE_DEFAULT)
         ) && bytes_read + child.size() >= block_size
     }
 
-    fn handle_block<'a>(&self, head: &'a Instruction, iterator: &mut Peekable<impl Iterator<Item=&'a Instruction>>, parent_bytes_read: &mut usize) -> Statement {
+    fn get_block_size(instruction: &Instruction, parent_bytes_remaining: usize) -> usize {
+        match instruction.arg("block_size") {
+            Some(block_size) => {
+                block_size.as_int() as usize - if instruction.opcode() == OPCODE_ELSE_CK {
+                    // unlike other blocks, else_ck counts the block size from the beginning of the
+                    // instruction instead of the end
+                    instruction.size()
+                } else {
+                    0
+                }
+            }
+            // for blocks without a block size (should just be default), subtract 2 for the expected
+            // block end instruction
+            None => parent_bytes_remaining.saturating_sub(2),
+        }
+    }
+
+    fn handle_block<'a>(&self, head: &'a Instruction, iterator: &mut Peekable<impl Iterator<Item=&'a Instruction>>, parent_bytes_read: &mut usize, parent_block_size: usize) -> Statement {
         let head_statement = self.make_statement(head);
 
         let mut block = Vec::new();
-        let Some(block_size) = head.arg("block_size") else {
-            return head_statement;
-        };
-        let block_size = block_size.as_int() as usize - if head.opcode() == OPCODE_ELSE_CK {
-            // unlike other blocks, else_ck counts the block size from the beginning of the
-            // instruction instead of the end
-            head.size()
-        } else {
-            0
-        };
         let mut bytes_read = 0usize;
+        let block_size = Self::get_block_size(head, parent_block_size - *parent_bytes_read);
 
         // check if this is a block instruction that should logically be a sibling of our
         // block instead of a child. if it is, break out of our block early and let that
@@ -165,7 +174,7 @@ impl ScriptFormatter {
             
             bytes_read += instruction.size();
             let stmt = if instruction.is_block_start() {
-                self.handle_block(instruction, iterator, &mut bytes_read)
+                self.handle_block(instruction, iterator, &mut bytes_read, block_size)
             } else {
                 if instruction.has_conditions() {
                     block.push(Statement::BlankLine);
@@ -206,6 +215,8 @@ impl ScriptFormatter {
         // this will almost certainly overestimate because instructions inside blocks will be pushed
         // down into the blocks, but it guarantees we won't need any extra allocations
         let mut body = Vec::with_capacity(instructions.len());
+        let mut bytes_read = 0usize;
+        let block_size = instructions.iter().map(Instruction::size).sum::<usize>();
         let mut iterator = instructions.iter().peekable();
 
         while let Some(instruction) = iterator.next() {
@@ -218,9 +229,10 @@ impl ScriptFormatter {
             if !self.all_args && instruction.opcode() == OPCODE_EVT_END {
                 break;
             }
-            
+
+            bytes_read += instruction.size();
             let stmt = if instruction.is_block_start() {
-                self.handle_block(instruction, &mut iterator, &mut 0)
+                self.handle_block(instruction, &mut iterator, &mut bytes_read, block_size)
             } else {
                 self.make_statement(instruction)
             };

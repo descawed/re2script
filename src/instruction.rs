@@ -1411,7 +1411,7 @@ impl Instruction {
         matches!(
             self.description.opcode,
             OPCODE_IFEL_CK | OPCODE_ELSE_CK | OPCODE_SWITCH | OPCODE_CASE
-            | OPCODE_WHILE | OPCODE_DO | OPCODE_FOR | OPCODE_FOR2
+            | OPCODE_WHILE | OPCODE_DO | OPCODE_FOR | OPCODE_FOR2 | OPCODE_DEFAULT
         )
     }
 
