@@ -37,6 +37,10 @@ impl ScriptFormatter {
         self.label_offsets.iter().position(|offset| *offset == target)
     }
 
+    fn has_label(&self, instruction: &Instruction) -> bool {
+        self.get_label_index(instruction.offset()).is_some()
+    }
+
     fn make_statement_inner(&self, instruction: &Instruction) -> Statement {
         // we don't check for blocks here because handle_block is responsible for that
         // we also don't check for gotos because those need to be handled later after the AST is
@@ -192,8 +196,9 @@ impl ScriptFormatter {
                 self.all_args || bytes_read < block_size ||
                     !matches!(instruction.opcode(), OPCODE_ENDIF | OPCODE_EWHILE | OPCODE_NEXT | OPCODE_BREAK | OPCODE_ESWITCH)
                 );
-            
-            if should_include {
+
+            // if there's a label on this instruction, we have to include it regardless
+            if should_include || self.has_label(instruction) {
                 block.push(stmt);
             }
 
@@ -220,13 +225,13 @@ impl ScriptFormatter {
         let mut iterator = instructions.iter().peekable();
 
         while let Some(instruction) = iterator.next() {
-            if self.suppress_nops && instruction.is_nop() {
+            if self.suppress_nops && instruction.is_nop() && !self.has_label(instruction) {
                 continue;
             }
             
             // unless we're showing everything (all_args), don't show the function end instruction,
             // as it's implicit
-            if !self.all_args && instruction.opcode() == OPCODE_EVT_END {
+            if !self.all_args && instruction.opcode() == OPCODE_EVT_END && !self.has_label(instruction) {
                 break;
             }
 
