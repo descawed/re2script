@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::iter::Peekable;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::ast::*;
 use crate::constants::{NameStore, flag_description};
@@ -295,16 +295,24 @@ impl ScriptFormatter {
         self.name_store.clear();
     }
 
-    pub fn parse_function(&mut self, buf: &[u8]) -> Function {
+    pub fn parse_function(&mut self, buf: &[u8], with_header: bool) -> Result<Function> {
         self.reset();
         
-        let instructions = Instruction::read_function(buf);
+        let instructions = if with_header {
+            let script = Instruction::read_script(buf)?;
+            if script.len() != 1 {
+                bail!("Expected exactly one function in the init script, got {}", script.len());
+            }
+            script.into_iter().next().unwrap()
+        } else {
+            Instruction::read_function(buf)
+        };
         
         let mut valid_offsets = HashSet::new();
         Self::collect_offsets(&instructions, &mut valid_offsets);
         self.find_labels(&instructions, &valid_offsets);
         
-        self.format_instructions(FunctionName::Init, &instructions)
+        Ok(self.format_instructions(FunctionName::Init, &instructions))
     }
 
     fn decompile_functions(&mut self, script: &[impl AsRef<[Instruction]>]) -> Script {

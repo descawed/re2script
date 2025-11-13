@@ -160,7 +160,7 @@ fn get_scripts(path: &Path, format: Format, mut formatter: ScriptFormatter) -> R
         } else if init_buf.is_empty() {
             None
         } else {
-            Some(formatter.parse_function(&init_buf[0]).to_string())
+            Some(formatter.parse_function(&init_buf[0], false)?.to_string())
         };
         let parsed_exec = (!exec_buf.is_empty()).then(|| formatter.parse_functions(&exec_buf).to_string());
 
@@ -185,7 +185,10 @@ fn get_scripts(path: &Path, format: Format, mut formatter: ScriptFormatter) -> R
         };
 
         (
-            init_buf.map(|b| formatter.parse_function(&b).to_string()),
+            match init_buf {
+                Some(b) => Some(formatter.parse_function(&b, true)?.to_string()),
+                None => None,
+            },
             match exec_buf {
                 Some(b) => Some(formatter.parse_script(&b)?.to_string()),
                 None => None,
